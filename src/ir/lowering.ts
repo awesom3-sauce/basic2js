@@ -1,13 +1,14 @@
-// Lowering orchestrator: Program (AST) -> LoweredProgram (Step[] + lineToStep + DATA pool).
+// Lowering orchestrator: Program (AST) -> LoweredProgram (Step[] + lineToStep + DATA pool + FN defs).
 
 import type { Line, Program } from "../ast/program.js";
 import type { Statement } from "../ast/statements.js";
 import type { BasicValue } from "../ast/types.js";
-import type { LoweredProgram, Step } from "./program.js";
+import type { FnDef, LoweredProgram, Step } from "./program.js";
 import { lowerStatementList } from "./lower-statements.js";
 
 export function lower(program: Program): LoweredProgram {
   const { data, dataLineStarts } = collectData(program);
+  const fnDefs = collectFnDefs(program);
 
   const steps: Step[] = [];
   const lineToStep = new Map<number, number>();
@@ -34,7 +35,7 @@ export function lower(program: Program): LoweredProgram {
     steps.push(...lowered);
   }
 
-  return { steps: resolveWhileWend(steps), lineToStep, data, dataLineStarts };
+  return { steps: resolveWhileWend(steps), lineToStep, data, dataLineStarts, fnDefs };
 }
 
 /**
@@ -93,8 +94,6 @@ function collectData(program: Program): {
   const data: BasicValue[] = [];
   const dataLineStarts = new Map<number, number>();
 
-  const visitLine = (line: Line): void => visitStatements(line.statements, line.lineNumber);
-
   const visitStatements = (statements: readonly Statement[], lineNumber: number): void => {
     for (const statement of statements) {
       if (statement.kind === "DataStmt") {
@@ -116,6 +115,39 @@ function collectData(program: Program): {
     }
   };
 
-  for (const line of program.lines) visitLine(line);
+  for (const line of program.lines) visitStatements(line.statements, line.lineNumber);
   return { data, dataLineStarts };
+}
+
+/**
+ * Collects every `DEF FN` in the program into a registry keyed by
+ * `name + suffix` (matching how parse-expressions.ts builds a
+ * `CallExpr.callee` for an `FN name(...)` call). `DEF FN` has no
+ * sequential runtime effect of its own (see lower-statements.ts's
+ * `DefFnStmt` case) — defining every function upfront, regardless of
+ * where its `DEF` line sits relative to its call sites, sidesteps any
+ * "was this function defined yet" ordering question entirely. Recurses
+ * into `IfStmt` branches for the same reason `collectData` does.
+ */
+function collectFnDefs(program: Program): Map<string, FnDef> {
+  const fnDefs = new Map<string, FnDef>();
+
+  const visitStatements = (statements: readonly Statement[]): void => {
+    for (const statement of statements) {
+      if (statement.kind === "DefFnStmt") {
+        fnDefs.set(statement.name + statement.suffix, {
+          params: statement.params,
+          body: statement.body,
+        });
+      } else if (statement.kind === "IfStmt") {
+        if (statement.thenBranch.kind === "Statements")
+          visitStatements(statement.thenBranch.statements);
+        if (statement.elseBranch?.kind === "Statements")
+          visitStatements(statement.elseBranch.statements);
+      }
+    }
+  };
+
+  for (const line of program.lines) visitStatements(line.statements);
+  return fnDefs;
 }

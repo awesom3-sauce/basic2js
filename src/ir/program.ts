@@ -11,7 +11,7 @@
 // deliberately NOT pre-designed for those yet (see lower-statements.ts).
 
 import type { Expression } from "../ast/expressions.js";
-import type { DimDeclaration, LValue, PrintSegment } from "../ast/statements.js";
+import type { DefFnParam, DimDeclaration, LValue, PrintSegment } from "../ast/statements.js";
 import type { BasicValue, TypeSuffix } from "../ast/types.js";
 
 export type Step =
@@ -262,4 +262,17 @@ export interface LoweredProgram {
   readonly data: readonly BasicValue[];
   /** Maps a BASIC line number to the index into `data` of that line's first DATA value, for `RESTORE <line>`. */
   readonly dataLineStarts: LineIndex;
+  /**
+   * Every `DEF FN` in the program, keyed by `name + suffix` (matching a
+   * `CallExpr.callee` built the same way — see parse-expressions.ts) — a
+   * pre-pass over the whole `Program`, since `DEF FN` is non-executable in
+   * the sequential sense (defining a function has no runtime effect at the
+   * point the `DEF` statement sits) and doesn't itself become a Step.
+   */
+  readonly fnDefs: ReadonlyMap<string, FnDef>;
+}
+
+export interface FnDef {
+  readonly params: readonly DefFnParam[];
+  readonly body: Expression;
 }

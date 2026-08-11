@@ -1,14 +1,15 @@
 // Expression -> JS source-text emission.
 //
 // Implemented: NumberLiteral, StringLiteral, VariableRef, ArrayRef (build
-// order step 10), unary "-"/"NOT", and the full BinOp set — arithmetic
-// (+ - * / \ ^ MOD, build order step 4) plus comparisons and AND/OR
-// (build order step 6) — exactly the Expression shapes the parser
-// currently produces (see src/parser/parse-expressions.ts). CallExpr is
-// defined in the AST already but has an explicit throwing case here
-// (backed by a final `assertNever`), same defensive-backstop pattern as
-// src/ir/lower-statements.ts — it lands in its own build-order steps
-// (13/14).
+// order step 10), CallExpr (a `DEF FN` call — build order step 13), unary
+// "-"/"NOT", and the full BinOp set — arithmetic (+ - * / \ ^ MOD, build
+// order step 4) plus comparisons and AND/OR (build order step 6) —
+// exactly the Expression shapes the parser currently produces (see
+// src/parser/parse-expressions.ts). Builtin function calls (LEFT$, INT,
+// ...) will also become CallExpr once step 14 lands, at which point this
+// file's CallExpr case needs to distinguish "call a DEF FN" from "call a
+// builtin" — not needed yet, since the parser doesn't produce a CallExpr
+// for anything but an `FN name(...)` call until then.
 //
 // Every composite sub-expression (UnaryExpr, BinaryExpr) is emitted fully
 // parenthesized, so nesting composes safely regardless of JS's own
@@ -16,12 +17,35 @@
 // to be correct; the emitted text doesn't need to replicate BASIC's
 // precedence rules itself (already resolved by the parser into tree
 // structure).
+//
+// `locals`: the set of varKeys currently shadowed by DEF FN parameters
+// (empty everywhere except while emitting a DEF FN body — see
+// emit-program.ts). A VariableRef whose key is in `locals` emits a
+// reference to the real JS function parameter (via mangleParamName)
+// instead of a V[...] lookup, so JS's own parameter scoping does the
+// "parameter shadows a same-named global, only within this function body"
+// work for free. Threaded through every recursive call so a shadowed
+// variable is still recognized arbitrarily deep inside the body (e.g.
+// inside a nested FN call's arguments, or an array index expression).
+//
+// CAUTION for future signature changes: adding this optional `locals`
+// parameter broke every existing bare `.map(emitExpression)` call site
+// across the emitter (emit-input.ts, emit-read.ts, emit-statements.ts) —
+// Array.prototype.map invokes its callback as (value, index, array), so
+// the numeric `index` silently landed in `locals`, and `locals.has(...)`
+// threw at runtime. All call sites were fixed to wrap in an explicit
+// arrow (`.map((e) => emitExpression(e))`), but adding *any* new optional
+// parameter here again would reintroduce the same class of bug at every
+// bare-reference call site — grep for `.map(emitExpression)` (and
+// `.map(emitJumpTarget)`, same risk) before changing this signature again.
 
 import type { BinOp, Expression, UnaryOp } from "../ast/expressions.js";
-import { varKey } from "./mangle.js";
+import { mangleParamName, varKey } from "./mangle.js";
 import { assertNever } from "../util/assert-never.js";
 
-export function emitExpression(expr: Expression): string {
+const NO_LOCALS: ReadonlySet<string> = new Set();
+
+export function emitExpression(expr: Expression, locals: ReadonlySet<string> = NO_LOCALS): string {
   switch (expr.kind) {
     case "NumberLiteral":
       return String(expr.value);
@@ -29,36 +53,38 @@ export function emitExpression(expr: Expression): string {
     case "StringLiteral":
       return JSON.stringify(expr.value);
 
-    case "VariableRef":
-      return `V[${JSON.stringify(varKey(expr.name, expr.suffix))}]`;
+    case "VariableRef": {
+      const key = varKey(expr.name, expr.suffix);
+      return locals.has(key) ? mangleParamName(key) : `V[${JSON.stringify(key)}]`;
+    }
 
     case "UnaryExpr":
-      return emitUnaryExpr(expr.op, expr.operand);
+      return emitUnaryExpr(expr.op, expr.operand, locals);
 
     case "BinaryExpr":
-      return emitBinaryExpr(expr.op, expr.left, expr.right);
+      return emitBinaryExpr(expr.op, expr.left, expr.right, locals);
 
     case "ArrayRef": {
       const key = JSON.stringify(varKey(expr.name, expr.suffix));
-      const indices = `[${expr.indices.map(emitExpression).join(", ")}]`;
+      const indices = `[${expr.indices.map((i) => emitExpression(i, locals)).join(", ")}]`;
       const isString = expr.suffix === "$";
       return `__arrGet(ARR, ${key}, ${indices}, ${isString})`;
     }
 
-    case "CallExpr":
-      throw new Error(
-        'Internal error: emitting "CallExpr" is not implemented yet (build order steps 13/14)',
-      );
+    case "CallExpr": {
+      const args = expr.args.map((a) => emitExpression(a, locals)).join(", ");
+      return `FN[${JSON.stringify(expr.callee)}](${args})`;
+    }
 
     default:
       return assertNever(expr, "emitExpression");
   }
 }
 
-function emitUnaryExpr(op: UnaryOp, operand: Expression): string {
+function emitUnaryExpr(op: UnaryOp, operand: Expression, locals: ReadonlySet<string>): string {
   switch (op) {
     case "-":
-      return `(-${emitExpression(operand)})`;
+      return `(-${emitExpression(operand, locals)})`;
 
     case "NOT":
       // BASIC's NOT is a bitwise complement, not JS's logical "!" — see
@@ -66,16 +92,21 @@ function emitUnaryExpr(op: UnaryOp, operand: Expression): string {
       // common case of operands that are themselves comparison/logical
       // results (0 = false, -1 = true), ~0 = -1 and ~(-1) = 0, which is
       // exactly logical negation.
-      return `(~${emitExpression(operand)})`;
+      return `(~${emitExpression(operand, locals)})`;
 
     default:
       return assertNever(op, "emitUnaryExpr");
   }
 }
 
-function emitBinaryExpr(op: BinOp, left: Expression, right: Expression): string {
-  const l = emitExpression(left);
-  const r = emitExpression(right);
+function emitBinaryExpr(
+  op: BinOp,
+  left: Expression,
+  right: Expression,
+  locals: ReadonlySet<string>,
+): string {
+  const l = emitExpression(left, locals);
+  const r = emitExpression(right, locals);
 
   switch (op) {
     case "+":

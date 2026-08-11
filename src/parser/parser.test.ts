@@ -256,12 +256,9 @@ describe("parse — lines and program structure", () => {
   });
 });
 
-describe("parse — not-yet-implemented statements", () => {
-  it("raises a clear error for a keyword without parser support yet", () => {
-    expect(() => parseSource("10 DEF FNA(X) = X * 2")).toThrow(ParseError);
-    expect(() => parseSource("10 DEF FNA(X) = X * 2")).toThrow(/not implemented yet/);
-  });
-});
+// All 20 Statement kinds are implemented as of build order step 13 (DEF
+// FN was the last one) — there's no longer a real BASIC keyword left to
+// exercise parseStatement's "not implemented yet" fallback branch with.
 
 describe("parse — FOR/NEXT", () => {
   it("parses FOR with no STEP (defaults handled at lowering, not parsing)", () => {
@@ -677,5 +674,83 @@ describe("parse — WHILE/WEND", () => {
     const statements = firstLineStatements("10 WHILE X < 10");
     expect(statements).toHaveLength(1);
     expect(Object.keys(statements[0]!)).toEqual(["kind", "condition"]);
+  });
+});
+
+describe("parse — DEF FN", () => {
+  it("parses a single-parameter DEF FN", () => {
+    expect(firstStatement("10 DEF FN D(X) = X * 2")).toEqual({
+      kind: "DefFnStmt",
+      name: "d",
+      suffix: "",
+      params: [{ name: "x", suffix: "" }],
+      body: {
+        kind: "BinaryExpr",
+        op: "*",
+        left: { kind: "VariableRef", name: "x", suffix: "" },
+        right: { kind: "NumberLiteral", value: 2 },
+      },
+    });
+  });
+
+  it("parses a zero-parameter DEF FN", () => {
+    expect(firstStatement("10 DEF FN PI() = 3.14159")).toEqual({
+      kind: "DefFnStmt",
+      name: "pi",
+      suffix: "",
+      params: [],
+      body: { kind: "NumberLiteral", value: 3.14159 },
+    });
+  });
+
+  it("parses a multi-parameter DEF FN and a suffixed function name", () => {
+    expect(firstStatement("10 DEF FN SUM%(A, B) = A + B")).toEqual({
+      kind: "DefFnStmt",
+      name: "sum",
+      suffix: "%",
+      params: [
+        { name: "a", suffix: "" },
+        { name: "b", suffix: "" },
+      ],
+      body: {
+        kind: "BinaryExpr",
+        op: "+",
+        left: { kind: "VariableRef", name: "a", suffix: "" },
+        right: { kind: "VariableRef", name: "b", suffix: "" },
+      },
+    });
+  });
+
+  it("rejects the concatenated FNA(X) form — a space between FN and the name is required", () => {
+    // See parse-statements.ts's parseDefFnStmt doc comment: without the
+    // space, "FNA" lexes as one Identifier token, not a Keyword("FN")
+    // followed by an Identifier, which parseDefFnStmt requires.
+    expect(() => parseSource("10 DEF FNA(X) = X * 2")).toThrow(ParseError);
+  });
+
+  it("parses an FN call expression", () => {
+    expect(letValue("10 LET Y = FN D(5)")).toEqual({
+      kind: "CallExpr",
+      callee: "d",
+      args: [{ kind: "NumberLiteral", value: 5 }],
+    });
+  });
+
+  it("parses a zero-argument FN call", () => {
+    expect(letValue("10 LET Y = FN PI()")).toEqual({
+      kind: "CallExpr",
+      callee: "pi",
+      args: [],
+    });
+  });
+
+  it("parses nested FN calls", () => {
+    expect(letValue("10 LET Y = FN A(FN B(X))")).toEqual({
+      kind: "CallExpr",
+      callee: "a",
+      args: [
+        { kind: "CallExpr", callee: "b", args: [{ kind: "VariableRef", name: "x", suffix: "" }] },
+      ],
+    });
   });
 });

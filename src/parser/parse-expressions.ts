@@ -7,13 +7,16 @@
 // AND/OR — build order step 6).
 //
 // An identifier immediately followed by `(` is always parsed as an
-// ArrayRef (never a CallExpr) — correct for now, since neither builtin
-// functions (step 14) nor DEF FN (step 13) exist yet to create ambiguity.
-// Once they land, resolving `name(args)` between "array access" / "DEF FN
-// call" / "builtin call" will need real disambiguation (e.g. a symbol
-// table of known builtin/DEF-FN names checked before falling back to
-// array access) — flagged here as a concrete TODO for those steps rather
-// than left implicit.
+// ArrayRef (never a CallExpr) — correct for now, since builtin functions
+// (step 14) don't exist yet to create ambiguity. `FN name(args)` (build
+// order step 13) is unambiguous by construction instead of needing
+// disambiguation: it's always preceded by the `FN` keyword (see
+// parseDefFnStmt's scope note in parse-statements.ts on why a space
+// between `FN` and the name is required), so it's recognized as its own
+// CallExpr case in parsePrimary below, never confused with ArrayRef.
+// Builtin functions (LEFT$, INT, ...) will still need real disambiguation
+// once step 14 lands, since they have no such keyword prefix — a concrete
+// TODO for that step, not resolved here.
 
 import type { Expression } from "../ast/expressions.js";
 import { splitSuffix } from "./identifier.js";
@@ -74,6 +77,16 @@ function parsePrimary(cursor: TokenCursor): Expression {
     return { kind: "VariableRef", name, suffix };
   }
 
+  if (token.type === "Keyword" && token.text === "FN") {
+    cursor.advance();
+    const { name, suffix } = splitSuffix(stringValue(cursor.expect("Identifier")));
+    // A DEF FN call always has parens, even for a zero-argument function
+    // (`FN A()`), unlike a bare VariableRef — so an explicit "(" is
+    // required here rather than optional the way ArrayRef's isn't.
+    const args = parseIndexList(cursor);
+    return { kind: "CallExpr", callee: name + suffix, args };
+  }
+
   if (token.type === "Operator" && token.text === "(") {
     cursor.advance();
     const inner = parseExpression(cursor, 0);
@@ -89,15 +102,21 @@ function parsePrimary(cursor: TokenCursor): Expression {
 }
 
 /**
- * `"(" expr[, expr...] ")"` — shared by ArrayRef expressions, array
- * element l-values, and DIM declarations (see parse-statements.ts).
+ * `"(" [expr[, expr...]] ")"` — shared by ArrayRef expressions, array
+ * element l-values, DIM declarations (see parse-statements.ts), and
+ * `FN name(...)` call expressions. Allows an empty list (`FN PI()`, a
+ * zero-argument DEF FN call, is valid BASIC) even though a real array
+ * reference/DIM always has at least one index in practice — permissive
+ * here, not worth a separate near-duplicate parser for that distinction.
  */
 export function parseIndexList(cursor: TokenCursor): Expression[] {
   cursor.expect("Operator", "(");
   const indices: Expression[] = [];
-  for (;;) {
-    indices.push(parseExpression(cursor));
-    if (!cursor.match("Operator", ",")) break;
+  if (!cursor.check("Operator", ")")) {
+    for (;;) {
+      indices.push(parseExpression(cursor));
+      if (!cursor.match("Operator", ",")) break;
+    }
   }
   cursor.expect("Operator", ")");
   return indices;

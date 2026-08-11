@@ -78,9 +78,10 @@ build order progresses. Currently everything is `[ ]` — this is the target spe
   with the wrong number of dimensions from how it was DIM'd/first-used, are both a
   `SUBSCRIPT OUT OF RANGE` runtime error. Re-`DIM`ing an already-allocated array silently resets it
   rather than raising GW-BASIC's `Redimensioned array` error (see Open Decisions).
-  `identifier(args)` in an expression is always parsed as an array reference (never a builtin/DEF FN
-  call) — correct for now since neither exists yet; steps 13/14 will need to add real
-  disambiguation.
+  `identifier(args)` in an expression is always parsed as an array reference, never a call — a
+  `DEF FN` call is syntactically distinct (always `FN name(args)`, see below) and unambiguous by
+  construction; builtin functions (step 14) will still need real name-based disambiguation against
+  array references sharing the same identifier space.
 - `DATA value, value, ...` — non-executable; all `DATA` statements in the program (including any
   nested inside an `IF`/`THEN`/`ELSE` branch) are collected, in source order, into one flat pool
   before execution begins. Each `value` must be a number (optionally negative) or a _quoted_ string
@@ -93,9 +94,17 @@ build order progresses. Currently everything is `[ ]` — this is the target spe
 - `RESTORE [line-number]` — resets the `DATA` pointer to the start of the pool, or to the first
   `DATA` value originating from the given line (a runtime error if that line has no `DATA` of its
   own — see Open Decisions).
-- `DEF FN name(param[, param...]) = expr` — single-line user function. Parameters shadow locally;
-  any free variable referenced in the body reads live from the caller's variable state (confirm
-  and document exact scoping when implementing step 13).
+- `DEF FN name(param[, param...]) = expr` — single-line user function. Requires a space between
+  `FN` and the function name (`DEF FN A(X) = ...`), not the concatenated `DEF FNA(X) = ...` form
+  some classic BASIC listings also accept — see Open Decisions. Every `DEF FN` in the program is
+  collected into a registry in a pre-pass before execution begins (like `DATA`, including any
+  nested inside an `IF`/`THEN`/`ELSE` branch), so a function may be called before its textual
+  `DEF FN` line runs, and `DEF FN` itself is non-executable (lowers to no `Step`). Emitted as a
+  real JS function per definition, called inside `run()`'s closure: parameters become real JS
+  function parameters (so JS's own scoping makes a parameter shadow a same-named global for the
+  duration of the call, with no bespoke mechanism needed), while any free variable in the body
+  reads live from the caller's current `V`/`ARR` state at call time — not a value snapshotted when
+  `DEF FN` was declared.
 - `END` / `STOP` — halt execution (`pc = -1`).
 
 ## Operators
@@ -175,6 +184,13 @@ revisited explicitly** — if you change one, update this section and any golden
   lines. A previous PRINT ending in `;`/`,` (suppressing its newline) leaves the real terminal
   cursor at a nonzero column this doesn't account for. Revisit if real cross-statement column
   tracking turns out to matter for a golden program.
+- **`DEF FN`/`FN` require a space between `FN` and the function name**: `DEF FN A(X) = ...` is
+  supported; the concatenated `DEF FNA(X) = ...` form some classic BASIC listings allow is not.
+  Without the space, `FNA` lexes as a single Identifier token indistinguishable from a bare
+  variable, which would need lexer state or a symbol-table-aware two-pass parse to resolve;
+  requiring the space sidesteps that and, as a bonus, makes `FN name(...)` calls unambiguous with
+  array references at parse time too (a call is always `FN`-keyword-prefixed, an array reference
+  never is). Revisit only if a real-world `.bas` listing needs the concatenated form.
 - **Integer division `\`**: emitted as `Math.trunc(left / right)`. Real GW-BASIC may round each
   operand to an integer _before_ dividing rather than just truncating the final quotient —
   unverified; revisit in step 14/16 polish if it matters for a golden program.

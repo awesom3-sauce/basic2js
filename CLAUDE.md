@@ -190,7 +190,7 @@ the scaffolding plan (git history); summary:
 Every `src/**` file not yet reached by this build order is a stub with a `TODO` comment pointing at
 the relevant step above — that's the intended landing spot for each piece of real implementation.
 
-**Progress**: steps 1–2 are implemented.
+**Progress**: steps 1–13 are implemented.
 
 - Step 1 (minimal lexer) — `src/lexer/{token,keywords,lex-error,lexer}.ts` + colocated `lexer.test.ts`.
   It's dialect-complete on the keyword/operator table (a lookup table costs nothing to fill in
@@ -349,4 +349,44 @@ GOSUB`) before formal tests were written, same workflow as step 7.
   pair throws during lowering — a genuine compile-time error for a structural defect, not a runtime
   one. Confirmed by direct experimentation that `WHILE` (unlike `FOR`) _does_ pre-test its condition.
 
-Next: step 13, `DEF FN`.
+- Step 13 (`DEF FN`) — required a space between `FN` and the function name (`DEF FN A(X) = ...`,
+  not concatenated `DEF FNA(X) = ...`) so `FN` always lexes as its own `Keyword` token; as a bonus
+  this makes `FN name(...)` call expressions unambiguous with `ArrayRef` at parse time with zero
+  disambiguation logic needed (a call is always `FN`-keyword-prefixed, an array reference never
+  is) — real disambiguation is still deferred to step 14 for builtins, which have no such marker.
+  `parseIndexList` (shared with `ArrayRef`/`DimStmt`) had to be relaxed to allow zero arguments,
+  since `FN PI()` is legal but no existing caller needed an empty list before. `DEF FN` is
+  non-executable (lowers to zero Steps, mirroring `DataStmt`) and is instead collected by a new
+  `lowering.ts` pre-pass (`collectFnDefs`, recursing into `IfStmt` branches like `collectData`)
+  into `LoweredProgram.fnDefs`, keyed by `name + suffix` — so a function can be called before its
+  textual `DEF FN` line ever executes, the same hoisting-like guarantee `DATA`/`READ` already rely
+  on. Emission (`emit-fn-defs.ts`) turns each entry into a real JS function assigned into a new
+  `FN` object declared inside `run()`'s closure (not module-level like `LINESTART`/`DATA`, since a
+  function body can read the caller's live `V`/`ARR` state) — each `DEF FN` parameter becomes a
+  real JS function parameter (mangled via a new `mangleParamName` in `mangle.ts`), so JS's own
+  function-scoping makes a parameter shadow a same-named global for the call's duration with no
+  bespoke mechanism, while `emitExpression` gained an optional `locals: ReadonlySet<string>`
+  parameter threaded through its recursive helpers so a `VariableRef` matching a parameter
+  resolves to that JS parameter instead of a `V[...]` lookup.
+
+  **Real bug found and fixed**: adding that second, optional `locals` parameter to `emitExpression`
+  silently broke four bare `.map(emitExpression)` call sites (`emit-input.ts`, `emit-read.ts`, two
+  in `emit-statements.ts`) — `Array.prototype.map` invokes its callback as `(value, index, array)`,
+  so the numeric `index` landed in `locals` at every one of those sites, and `locals.has(...)` threw
+  `TypeError` at runtime for any array/input/DIM expression containing a `VariableRef`. Caught by
+  running the full suite after the change (219/221, with the 2 failures being expected removals —
+  see below) rather than by reasoning about it in advance; fixed by wrapping each site in an
+  explicit arrow function. `emitJumpTarget`'s bare `.map()` use was unaffected since its signature
+  takes only one parameter, so JS simply ignores `.map()`'s extra arguments there. Take-away
+  documented in `emit-expressions.ts`: adding an optional parameter to a function used as a bare
+  `.map()`/`.forEach()` callback anywhere is a latent multi-call-site bug, not just a local one —
+  worth an explicit search across the codebase, not just fixing the call site you're looking at.
+
+  With DEF FN implemented, every keyword the step-13 parser previously rejected with "not
+  implemented yet" is now a real statement — no unimplemented keyword remains to exercise that
+  fallback branch, so the corresponding placeholder tests in `parser.test.ts` and
+  `lowering.test.ts` (which had been incrementally re-targeted at whichever keyword was still
+  unimplemented across steps 7–13: `FOR` → `GOSUB` → `WHILE` → `DEF`) were removed rather than
+  re-targeted again, replaced with a comment explaining why.
+
+Next: step 14, the full builtin function library.

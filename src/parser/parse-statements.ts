@@ -6,15 +6,18 @@
 // IF/THEN/ELSE (build order step 6), FOR/NEXT (build order step 7),
 // GOSUB/RETURN/ON...GOTO/ON...GOSUB (build order step 8), INPUT (build
 // order step 9), DIM/array l-values (build order step 10),
-// DATA/READ/RESTORE (build order step 11), and WHILE/WEND (build order
-// step 12). Every other keyword the lexer recognizes (DEF — see
-// src/lexer/keywords.ts) currently raises a clear "not implemented yet"
-// ParseError rather than being silently mis-parsed; each lands in its own
-// build-order step (see CLAUDE.md).
+// DATA/READ/RESTORE (build order step 11), WHILE/WEND (build order step
+// 12), and DEF FN (build order step 13, see parseDefFnStmt for a scope
+// note on the "FN A" vs. "FNA" spelling). Every other keyword the lexer
+// recognizes currently raises a clear "not implemented yet" ParseError
+// rather than being silently mis-parsed; each lands in its own build-order
+// step (see CLAUDE.md).
 
 import type {
   DataStmt,
   DataValue,
+  DefFnParam,
+  DefFnStmt,
   DimDeclaration,
   DimStmt,
   ForStmt,
@@ -105,6 +108,8 @@ export function parseStatement(cursor: TokenCursor): Statement {
       case "WEND":
         cursor.advance();
         return { kind: "WendStmt" };
+      case "DEF":
+        return parseDefFnStmt(cursor);
       case "END":
         cursor.advance();
         return { kind: "EndStmt" };
@@ -410,4 +415,41 @@ function parseWhileStmt(cursor: TokenCursor): WhileStmt {
   cursor.expect("Keyword", "WHILE");
   const condition = parseExpression(cursor);
   return { kind: "WhileStmt", condition };
+}
+
+/**
+ * `DEF FN name(param[, param...]) = expr`.
+ *
+ * Scope decision (see DIALECT.md): requires a space between `FN` and the
+ * function name — `DEF FN A(X) = ...`, not the concatenated `DEF FNA(X) =
+ * ...` some classic BASIC listings also allow. With the space, `FN`
+ * always lexes as its own Keyword token (see src/lexer/lexer.ts's noted
+ * limitation from build order step 1); without one, "FNA" lexes as a
+ * single Identifier token indistinguishable from a bare variable, which
+ * would need either lexer state or a symbol-table-aware two-pass parse to
+ * resolve. Requiring the space sidesteps that entirely, and as a bonus
+ * makes `FN name(...)` call expressions (see parsePrimary in
+ * parse-expressions.ts) unambiguous with array references too — a call is
+ * always preceded by the `FN` keyword, an array reference never is.
+ */
+function parseDefFnStmt(cursor: TokenCursor): DefFnStmt {
+  cursor.expect("Keyword", "DEF");
+  cursor.expect("Keyword", "FN");
+  const { name, suffix } = splitSuffix(stringValue(cursor.expect("Identifier")));
+
+  cursor.expect("Operator", "(");
+  const params: DefFnParam[] = [];
+  if (!cursor.check("Operator", ")")) {
+    for (;;) {
+      const param = splitSuffix(stringValue(cursor.expect("Identifier")));
+      params.push({ name: param.name, suffix: param.suffix });
+      if (!cursor.match("Operator", ",")) break;
+    }
+  }
+  cursor.expect("Operator", ")");
+
+  cursor.expect("Operator", "=");
+  const body = parseExpression(cursor);
+
+  return { kind: "DefFnStmt", name, suffix, params, body };
 }

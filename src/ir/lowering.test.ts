@@ -2,9 +2,7 @@ import { describe, expect, it } from "vitest";
 import { tokenize } from "../lexer/lexer.js";
 import { parse } from "../parser/parser.js";
 import { lower } from "./lowering.js";
-import { lowerStatement } from "./lower-statements.js";
 import type { LoweredProgram } from "./program.js";
-import type { DefFnStmt } from "../ast/statements.js";
 
 function lowerSource(source: string): LoweredProgram {
   return lower(parse(tokenize(source)));
@@ -49,25 +47,9 @@ describe("lower — statement kinds", () => {
     expect(lowerSource("10 STOP").steps).toEqual([{ kind: "Halt", line: 10 }]);
   });
 
-  it("throws a clear internal error when asked to lower an unsupported statement kind", () => {
-    // Bypasses the parser (which never produces DefFnStmt yet) to exercise
-    // lower-statements.ts's defensive backstop directly.
-    const fakeDefFnStmt: DefFnStmt = {
-      kind: "DefFnStmt",
-      name: "double",
-      suffix: "",
-      params: [{ name: "x", suffix: "" }],
-      body: {
-        kind: "BinaryExpr",
-        op: "*",
-        left: { kind: "VariableRef", name: "x", suffix: "" },
-        right: { kind: "NumberLiteral", value: 2 },
-      },
-    };
-    expect(() =>
-      lowerStatement(fakeDefFnStmt, 10, { stepIndexOffset: 0, nextLineNumber: undefined }),
-    ).toThrow(/not implemented yet/);
-  });
+  // All 20 Statement kinds are implemented as of build order step 13 (DEF
+  // FN was the last one) — there's no longer an unsupported kind left to
+  // exercise lowerStatement's defensive `assertNever` backstop with.
 });
 
 describe("lower — GOSUB/RETURN/ON", () => {
@@ -444,5 +426,47 @@ describe("lower — WHILE/WEND", () => {
     const wendStep = steps.find((s) => s.kind === "Wend");
     expect(whileStep).toBeDefined();
     expect(wendStep).toBeDefined();
+  });
+});
+
+describe("lower — DEF FN", () => {
+  it("produces zero steps for a DefFnStmt (non-executable, like DATA)", () => {
+    const { steps } = lowerSource("10 DEF FN D(X) = X * 2\n20 PRINT 1");
+    expect(steps).toEqual([
+      {
+        kind: "Print",
+        line: 20,
+        segments: [{ kind: "value", expr: { kind: "NumberLiteral", value: 1 } }],
+      },
+    ]);
+  });
+
+  it("collects a DEF FN into the fnDefs registry, keyed by name + suffix", () => {
+    const { fnDefs } = lowerSource("10 DEF FN SUM%(A, B) = A + B");
+    expect(fnDefs.has("sum%")).toBe(true);
+    expect(fnDefs.get("sum%")).toEqual({
+      params: [
+        { name: "a", suffix: "" },
+        { name: "b", suffix: "" },
+      ],
+      body: {
+        kind: "BinaryExpr",
+        op: "+",
+        left: { kind: "VariableRef", name: "a", suffix: "" },
+        right: { kind: "VariableRef", name: "b", suffix: "" },
+      },
+    });
+  });
+
+  it("collects multiple DEF FNs from different lines", () => {
+    const { fnDefs } = lowerSource("10 DEF FN A(X) = X\n20 DEF FN B(X) = X * 2");
+    expect([...fnDefs.keys()].sort()).toEqual(["a", "b"]);
+  });
+
+  it("collects a DEF FN nested inside an IF branch", () => {
+    // Mirrors collectData's IF-branch recursion — DEF FN is non-executable
+    // and hoisted regardless of where in the source it textually sits.
+    const { fnDefs } = lowerSource("10 IF 1 THEN DEF FN D(X) = X * 2");
+    expect(fnDefs.has("d")).toBe(true);
   });
 });

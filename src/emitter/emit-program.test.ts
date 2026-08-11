@@ -651,3 +651,41 @@ describe("emit — WHILE/WEND", () => {
     );
   });
 });
+
+describe("emit — DEF FN", () => {
+  it("calls a single-parameter user function", async () => {
+    const rt = await runBasic("10 DEF FN D(X) = X * 2\n20 PRINT FN D(5)\n30 END");
+    expect(rt.output).toBe(" 10 \n");
+  });
+
+  it("shadows a same-named global variable with the parameter, without mutating the global", async () => {
+    const rt = await runBasic(
+      "10 X = 100\n20 DEF FN D(X) = X * 2\n30 PRINT FN D(5)\n40 PRINT X\n50 END",
+    );
+    expect(rt.output).toBe(" 10 \n 100 \n");
+  });
+
+  it("reads a free (non-parameter) variable from live caller state, not a snapshot", async () => {
+    const rt = await runBasic(
+      "10 K = 10\n20 DEF FN ADDK(X) = X + K\n30 PRINT FN ADDK(5)\n40 K = 20\n50 PRINT FN ADDK(5)\n60 END",
+    );
+    expect(rt.output).toBe(" 15 \n 25 \n");
+  });
+
+  it("supports nested FN calls", async () => {
+    const rt = await runBasic(
+      "10 DEF FN SQR2(X) = X * X\n20 DEF FN QUAD(X) = FN SQR2(FN SQR2(X))\n30 PRINT FN QUAD(2)\n40 END",
+    );
+    expect(rt.output).toBe(" 16 \n");
+  });
+
+  it("supports a zero-argument FN call", async () => {
+    const rt = await runBasic("10 DEF FN PI() = 3.14159\n20 PRINT FN PI()\n30 END");
+    expect(rt.output).toBe(" 3.14159 \n");
+  });
+
+  it("supports a multi-parameter FN call", async () => {
+    const rt = await runBasic("10 DEF FN SUM(A, B) = A + B\n20 PRINT FN SUM(3, 4)\n30 END");
+    expect(rt.output).toBe(" 7 \n");
+  });
+});

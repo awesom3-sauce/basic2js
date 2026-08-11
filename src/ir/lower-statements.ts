@@ -9,22 +9,16 @@
 // GosubStmt/ReturnStmt/OnJumpStmt each lower 1:1 into a single Step (build
 // order step 8); InputStmt lowers 1:1 into an InputStep (build order step
 // 9); DimStmt lowers 1:1 into a DimStep (build order step 10);
-// ReadStmt/RestoreStmt each lower 1:1 into a single Step, while DataStmt
-// lowers to *no* steps at all — it's collected in a separate pre-pass over
-// the whole Program (see lowering.ts) since it's non-executable (build
-// order step 11); WhileStmt/WendStmt each lower 1:1 into a single Step
-// with a placeholder target, resolved afterward by lowering.ts's
+// ReadStmt/RestoreStmt each lower 1:1 into a single Step, while
+// DataStmt/DefFnStmt lower to *no* steps at all — both are collected in a
+// separate pre-pass over the whole Program instead (see lowering.ts),
+// since neither is executable in the sequential sense (build order steps
+// 11/13); WhileStmt/WendStmt each lower 1:1 into a single Step with a
+// placeholder target, resolved afterward by lowering.ts's
 // resolveWhileWend static bracket-matching pass (build order step 12).
-// Every other Statement kind is handled by an explicit case that throws —
-// the parser doesn't produce them yet (unsupported keywords raise a
-// ParseError before lowering ever runs), so these branches exist purely
-// as a defensive backstop and, together with the final `assertNever`,
-// keep this switch exhaustive: adding a new Statement kind without
-// updating this file becomes a compile-time TS error. Each one gets a
-// real implementation in its own build-order step — see the
-// per-construct rules in CLAUDE.md's "dispatch-loop / virtual-PC emitter"
-// section:
-// - DefFnStmt (step 13).
+// This switch is otherwise exhaustive (backed by the final `assertNever`)
+// — adding a new Statement kind without updating this file becomes a
+// compile-time TS error.
 
 import type { IfStmt, NextStmt, OnJumpStmt, Statement } from "../ast/statements.js";
 import { UNRESOLVED_WHILE_WEND, type JumpTarget, type Step } from "./program.js";
@@ -121,10 +115,7 @@ export function lowerStatement(statement: Statement, line: number, ctx: Lowering
       return [{ kind: "Wend", line, whileTarget: UNRESOLVED_WHILE_WEND }];
 
     case "DefFnStmt":
-      throw new Error(
-        `Internal error: lowering for "${statement.kind}" is not implemented yet (line ${line}) — ` +
-          "the parser should not have produced this statement kind yet.",
-      );
+      return []; // Non-executable; collected in lowering.ts's pre-pass instead.
 
     default:
       return assertNever(statement, "lowerStatement");

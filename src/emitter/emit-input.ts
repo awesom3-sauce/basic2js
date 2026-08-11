@@ -22,7 +22,7 @@ export function emitInputCall(step: InputStep, stepIndex: number): string {
       const isString = target.suffix === "$";
       const value = `__inputCoerce(__parts[${index}] ?? "", ${isString})`;
       if (target.kind === "ArrayElement") {
-        const indices = `[${target.indices.map(emitExpression).join(", ")}]`;
+        const indices = `[${target.indices.map((e) => emitExpression(e)).join(", ")}]`;
         return `__arrSet(ARR, ${key}, ${indices}, ${value}, ${isString});`;
       }
       return `V[${key}] = ${value};`;

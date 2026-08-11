@@ -46,7 +46,7 @@ function emitStepBody(step: Step, stepIndex: number): string {
       const key = JSON.stringify(varKey(step.target.name, step.target.suffix));
       const value = emitExpression(step.value);
       if (step.target.kind === "ArrayElement") {
-        const indices = `[${step.target.indices.map(emitExpression).join(", ")}]`;
+        const indices = `[${step.target.indices.map((e) => emitExpression(e)).join(", ")}]`;
         const isString = step.target.suffix === "$";
         return `__arrSet(ARR, ${key}, ${indices}, ${value}, ${isString}); pc = ${stepIndex + 1}; break;`;
       }
@@ -115,7 +115,7 @@ function emitStepBody(step: Step, stepIndex: number): string {
       const allocations = step.declarations
         .map((decl) => {
           const key = JSON.stringify(varKey(decl.name, decl.suffix));
-          const dims = `[${decl.dimensions.map(emitExpression).join(", ")}]`;
+          const dims = `[${decl.dimensions.map((e) => emitExpression(e)).join(", ")}]`;
           const isString = decl.suffix === "$";
           return `ARR[${key}] = __arrAlloc(${dims}, ${isString});`;
         })
