@@ -1,0 +1,3 @@
+/* Scoped styles for CodeEditor only. Reads design tokens from
+   ../../styles/tokens.css's CSS custom properties — never hardcode colors/
+   spacing here directly, so a future reskin only means editing tokens.css. */

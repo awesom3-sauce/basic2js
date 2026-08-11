@@ -1,0 +1,14 @@
+/* Resets + base element styles only — no component-specific rules here.
+   Component-specific styling belongs in each component's own .module.css. */
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-base);
+}

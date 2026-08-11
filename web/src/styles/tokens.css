@@ -1,0 +1,43 @@
+/* Design tokens — the single source of truth for the web UI's visual
+   language. A future reskin/redesign should be achievable largely by
+   editing this file's custom-property values, without touching component
+   logic. Component .module.css files must reference these variables rather
+   than hardcoding colors/spacing/fonts directly.
+   TODO (build order step 17): fill in a real palette/type scale/spacing
+   scale once the UI is actually built; placeholder minimal set below. */
+
+:root {
+  /* Color */
+  --color-bg: #ffffff;
+  --color-surface: #f5f5f5;
+  --color-text: #111111;
+  --color-text-muted: #666666;
+  --color-border: #dddddd;
+  --color-accent: #2563eb;
+  --color-error: #dc2626;
+
+  /* Spacing scale */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 16px;
+  --space-4: 24px;
+
+  /* Type */
+  --font-sans: system-ui, sans-serif;
+  --font-mono: ui-monospace, monospace;
+  --font-size-base: 14px;
+
+  /* Shape */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: #111111;
+    --color-surface: #1c1c1c;
+    --color-text: #f5f5f5;
+    --color-text-muted: #999999;
+    --color-border: #333333;
+  }
+}

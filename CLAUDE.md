@@ -1,0 +1,187 @@
+# CLAUDE.md
+
+Guidance for Claude Code (and any other agent or contributor) working in this repository.
+
+## What this project is
+
+`basic2js` converts classic line-numbered BASIC (GW-BASIC/Applesoft/Dartmouth style — see
+[DIALECT.md](DIALECT.md) for the exact supported syntax) into JavaScript that behaves **1:1**
+with the original program, including full support for unstructured `GOTO`/`GOSUB` control flow.
+It ships as a Node.js CLI (`basic2js convert`, `basic2js run`) and a small web UI
+([web/](web/), deployed to Vercel).
+
+It is currently a **single, focused language pair** (BASIC → JS), not a generic multi-language
+framework — see "Future: multiple language pairs" below for the deliberate seam that keeps a
+later generalization cheap without forcing that complexity on v1.
+
+## Pipeline
+
+```
+BASIC source
+  → Lexer          (src/lexer)        → Token[]
+  → Parser          (src/parser)       → AST (Program)              (src/ast)
+  → Semantic analyzer (src/semantics)  → Diagnostic[] (type checks, undefined-line-target checks)
+  → Lowering         (src/ir)          → Step[] + lineToStep (a flat, statement-granularity IR)
+  → Emitter           (src/emitter)     → JS source text (an async dispatch-loop `run(rt)` function)
+  → Runtime            (src/runtime)     → executes the emitted JS, given a host (Node or browser)
+```
+
+The **public entry point** is `compile(source: string)` in [src/index.ts](src/index.ts). The CLI
+and the web UI's `web/src/engine/` layer are the only permitted importers of the compiler core —
+nothing else should reach into `src/lexer`, `src/parser`, etc. directly.
+
+## The core architectural idea: the dispatch-loop / virtual-PC emitter
+
+BASIC's `GOTO`/`GOSUB`/`ON...GOTO` don't map onto structured JS control flow. Instead of trying to
+reconstruct structured `if`/`while` from arbitrary jumps, every BASIC *statement* (not line —
+colon-separated statements each get their own slot) is lowered to one `case` in a JS
+`while (pc !== -1) { switch (pc) { ... } }` loop, running inside a single `async function run(rt)`.
+`GOTO`/`GOSUB` become `pc = <target>; continue;`. `INPUT` is the only place that `await`s,
+suspending the loop at exactly the right point using native JS async machinery — no hand-rolled
+generators or continuation-passing.
+
+Program state (variables, arrays, the `FOR`/`NEXT` stack, the `GOSUB` return-address stack, the
+`DATA` pointer, `pc` itself) lives entirely inside the `run()` closure, keyed into plain `V`
+(scalars) / `ARR` (arrays) objects — **not** as bare JS identifiers (sidesteps reserved-word
+collisions) and **not** on the injected runtime host (keeps the host a pure I/O adapter, so
+multiple independent `run()` calls never share state).
+
+See the plan file used to scaffold this project (referenced in git history / commit message) for
+the full illustrative shape of emitted code, and [DIALECT.md](DIALECT.md) for the exact
+per-statement lowering rules (especially `IF`/`THEN`/`ELSE` clause-extends-to-end-of-line, and
+`FOR`/`NEXT`'s runtime-stack vs. `WHILE`/`WEND`'s static-nesting distinction).
+
+## The runtime host contract
+
+`src/runtime/interface.ts` defines `BasicRuntime` — `print`, `input` (the async suspension point),
+`random`/`seedRandom`, `reportError`, plus optional lifecycle hooks. Emitted JS only ever talks to
+this interface, never to `process.stdout`/DOM/etc. directly. Three implementations exist (or will,
+per the build order below):
+
+- `src/runtime/node/node-runtime.ts` — stdin/stdout via `node:readline/promises`. Backs the CLI.
+- `src/runtime/browser/browser-runtime.ts` — framework-agnostic, driven by callback hooks. Backed
+  by `web/src/engine/useBrowserRuntime.ts` for the React UI.
+- `tests/helpers/test-runtime.ts` — in-memory, captures print output, replays scripted stdin.
+  Backs both colocated unit tests and golden-file tests.
+
+## Type-suffix semantics
+
+BASIC's `%`/`!`/`#`/`$` suffixes are tracked in the AST (`TypeSuffix` in `src/ast/types.ts`) and
+enforced **at assignment time** (`LET`, `FOR` loop-variable update, `READ`, `INPUT`, array-element
+store), not on every intermediate expression — matching real BASIC. Coercion helpers live in
+`src/runtime/shared/values.ts`. All BASIC *syntax* (keywords, identifiers) is case-insensitive and
+normalized; string *literal contents* are never touched by that normalization. Full semantics are
+in [DIALECT.md](DIALECT.md).
+
+## Conventions
+
+- **Many small, single-responsibility files over few large ones.** This applies everywhere: the
+  AST is split by node category (`ast/statements.ts`, `ast/expressions.ts`, ...), the parser and
+  emitter are split by concern (`parse-statements.ts`/`parse-expressions.ts`,
+  `emit-statements.ts`/`emit-expressions.ts`), and the web UI is one component + one CSS module
+  per directory under `web/src/components/`. When in doubt, split further rather than adding a
+  second responsibility to an existing file.
+- **Exhaustiveness on every AST-kind `switch`.** Every `switch` over a `Statement['kind']` or
+  `Expression['kind']` (in the analyzer, lowering, and emitter) must end with a `default` case
+  calling an `assertNever(x: never)` helper, so adding a new AST node kind without updating every
+  consumer is a **compile error**, not a silent runtime bug.
+- **Strict TypeScript, no unjustified `any`.**
+- **Colocated unit tests, cross-cutting golden tests.** `src/lexer/lexer.test.ts` sits next to
+  `lexer.ts`; full end-to-end sample programs live under `tests/golden/programs/`. See "Testing"
+  below.
+
+## UI replaceability contract
+
+The web UI ([web/](web/)) is a React + Vite + TypeScript app deliberately structured so it can be
+redesigned — or even rewritten in a different framework — without touching the compiler core:
+
+- `web/src/engine/` is the **only** bridge between the UI and the compiler core (`src/index.ts`'s
+  `compile()`, plus `BrowserRuntime`). It contains no JSX and no styling.
+- Every visual piece is its own component folder under `web/src/components/`
+  (`ComponentName.tsx` + `ComponentName.module.css`), never a shared giant stylesheet.
+- `web/src/styles/tokens.css` centralizes the design language (colors, spacing, type scale) as CSS
+  custom properties — component stylesheets reference these variables rather than hardcoding
+  values, so a reskin-only revision can often be just a `tokens.css` edit.
+- A future full redesign only requires rewriting `web/src/components/**` and `web/src/App.tsx`
+  against the same `engine/` contract; `src/**` (the compiler core) and the CLI are unaffected.
+
+Deployed as a static site on **Vercel** (see [vercel.json](vercel.json) — zero-config Vite
+detection, no server/API routes needed since everything runs client-side).
+
+## Future: multiple language pairs
+
+This is intentionally a focused BASIC→JS tool, not a generic framework, but the module boundaries
+(`lexer` / `parser` / `ast` / `emitter` / `runtime`, all feeding a shared-shaped `Step[]` IR) are
+already clean enough that a second language pair would not require a rewrite. If/when that
+happens, the documented migration is: move the BASIC-specific modules to
+`src/languages/basic/{lexer,parser,ast}`, add a sibling `src/languages/<lang>/`, and keep
+`src/ir/`, `src/runtime/interface.ts`, and the CLI shell shared. Do not build this abstraction
+preemptively — only generalize once a second language pair is actually being added.
+
+## Dev commands
+
+```bash
+npm install                 # install core + web workspace deps
+npm run build                # compile src/ -> dist/ (tsconfig.build.json)
+npm run typecheck            # tsc --noEmit across src/ + tests/
+npm test                     # vitest run (colocated unit + tests/golden)
+npm run test:watch           # vitest watch mode
+npm run lint                 # eslint .
+npm run format                # prettier --write .
+npm run web:dev               # vite dev server for web/
+npm run web:build              # production build of web/ -> web/dist
+node dist/cli/index.js run examples/fizzbuzz.bas   # after building; or `npx tsx src/cli/index.ts run ...` during dev
+```
+
+## How to add a new BASIC statement
+
+1. Add the keyword to `src/lexer/keywords.ts` if it isn't already recognized.
+2. Add its AST shape to `src/ast/statements.ts` (extend the `Statement` union).
+3. Add a parse function in `src/parser/parse-statements.ts` + parser unit tests.
+4. Add lowering logic in `src/ir/lower-statements.ts` if it affects jump targets or step
+   flattening (most statements do, since each becomes its own `Step`).
+5. Add emission logic in `src/emitter/emit-statements.ts`.
+6. Add runtime support helpers in `src/runtime/shared/` if needed.
+7. Add emitter/behavioral unit tests — compile a small snippet and execute the emitted code
+   against `tests/helpers/test-runtime.ts`'s `TestRuntime`, asserting on captured output/state.
+8. Extend an existing golden program or add a new one under `tests/golden/programs/`.
+9. Document the statement's exact syntax/semantics in [DIALECT.md](DIALECT.md).
+
+## How to add a new builtin function
+
+Narrower version of the above, scoped to `src/emitter/runtime-calls.ts` (name → runtime helper
+mapping) + the relevant file under `src/runtime/shared/` (`strings.ts`, `math.ts`, or
+`formatting.ts`) + its unit tests + a DIALECT.md entry in the function table.
+
+## Staged build order
+
+The compiler is built incrementally so there's a working end-to-end path early. Full detail is in
+the scaffolding plan (git history); summary:
+
+1. Minimal lexer (line numbers, `PRINT`, `LET`, literals, identifiers+suffixes, `GOTO`, arithmetic,
+   colon, `REM`) + tests.
+2. AST + parser for that subset + tests.
+3. Lowering (`Program → Step[] + lineToStep`) for the linear/GOTO-only subset.
+4. Emitter producing the async trampoline for that subset.
+5. Minimal `NodeRuntime` + CLI `run` → **first end-to-end milestone**: a PRINT/LET/GOTO program
+   runs correctly. Get this solid (including a GOTO-loop-with-counter golden test) before
+   expanding scope.
+6. `IF`/`THEN`/`ELSE` + full operator precedence.
+7. `FOR`/`NEXT` with `STEP` (runtime stack semantics).
+8. `GOSUB`/`RETURN`, `ON GOTO`/`ON GOSUB`.
+9. `INPUT` (async suspension) + readline-based `NodeRuntime` input.
+10. `DIM` + array l-values/bounds.
+11. `DATA`/`READ`/`RESTORE`.
+12. `WHILE`/`WEND`.
+13. `DEF FN`.
+14. Full builtin library, with edge-case unit tests.
+15. Type-suffix enforcement (compile-time + runtime coercion/overflow).
+16. Error-handling polish + compile-time undefined-line-target validation.
+17. `BrowserRuntime` + the `web/` React+Vite app (component scaffold, `engine/` adapter layer,
+    deploy to Vercel).
+18. Golden programs added incrementally as features land — not batched at the end.
+19. CLI polish (`--standalone`, `--emit-ast`, `--emit-steps`, help text, exit codes).
+20. Final docs pass.
+
+Every `src/**` file currently in the repo is a stub with a `TODO` comment pointing at the relevant
+step above — that's the intended landing spot for each piece of real implementation.

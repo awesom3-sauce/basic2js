@@ -1,0 +1,47 @@
+{
+  "name": "basic2js",
+  "version": "0.1.0",
+  "description": "A sophisticated, functionally 1:1 classic BASIC to JavaScript converter/transpiler.",
+  "private": true,
+  "license": "GPL-3.0-only",
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "bin": {
+    "basic2js": "./dist/cli/index.js"
+  },
+  "workspaces": [
+    "web"
+  ],
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsx watch src/cli/index.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "typecheck": "tsc --noEmit",
+    "web:dev": "npm run dev --workspace web",
+    "web:build": "npm run build --workspace web"
+  },
+  "dependencies": {
+    "cac": "^6.7.14"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.17.0",
+    "@types/node": "^22.10.2",
+    "@typescript-eslint/eslint-plugin": "^8.18.1",
+    "@typescript-eslint/parser": "^8.18.1",
+    "@vitest/coverage-v8": "^2.1.8",
+    "eslint": "^9.17.0",
+    "eslint-config-prettier": "^9.1.0",
+    "prettier": "^3.4.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

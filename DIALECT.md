@@ -1,0 +1,134 @@
+# BASIC Dialect Specification
+
+This document is the source of truth for exactly what BASIC syntax and semantics `basic2js`
+supports. It targets **classic line-numbered BASIC** (GW-BASIC/Applesoft/Dartmouth style), not a
+structured dialect like QBasic. It is written as a spec-as-built: keep it in sync with the parser
+and emitter as each feature lands (see CLAUDE.md's staged build order), and use it as the
+reference when writing golden tests.
+
+Status legend: each section should eventually be marked `[ ]` planned / `[x]` implemented as the
+build order progresses. Currently everything is `[ ]` — this is the target spec, not yet built.
+
+## General syntax rules
+
+- **Line numbers** are required at the start of every line and determine execution order when
+  sorted numerically (not textual/file order). Duplicate line numbers are a parse error.
+- **Case-insensitivity**: all BASIC syntax — keywords and identifiers — is case-insensitive and
+  normalized internally (`PRINT`, `Print`, `print` are identical; `A`, `a` are the same variable).
+  **String literal contents are never touched by this normalization** — `"Hello"` and `"HELLO"`
+  remain distinct string *values*. This split is a common source of bugs; keep it explicit in any
+  code that touches identifiers vs. string data.
+- **Type suffixes** (`%` integer, `!` single-precision, `#` double-precision, `$` string) are part
+  of an identifier's spelling — `A`, `A%`, `A$` are three distinct variables. No suffix defaults to
+  single precision. `DEFINT`/`DEFSNG`/`DEFDBL`/`DEFSTR` (per-letter default-type declarations) are
+  **out of scope for v1** (see Open Decisions).
+- **Colon (`:`) separates multiple statements on one line.** Each statement gets its own step in
+  the compiled dispatch loop, so a mid-line `GOTO`/`GOSUB` can still resume correctly after a jump.
+- **`REM`** and **`'`** start a comment that consumes the rest of the physical line.
+
+## Statements (v1 scope)
+
+- `PRINT` — with `;` (no separator/concatenate) and `,` (14-column tab-zone) segment separators;
+  a trailing `;` or `,` suppresses the terminating newline. Numbers print with a leading space if
+  non-negative and a trailing space always (classic BASIC convention).
+- `INPUT ["prompt";] var[, var...]` — prints an optional prompt (appending `? ` unless the prompt
+  string itself ends in a custom separator — confirm exact GW-BASIC behavior when implementing),
+  suspends via the runtime's async `input()`, splits the response on commas, coerces each part to
+  its target variable's suffix.
+- `LET var = expr` and implicit assignment (`var = expr` without `LET`).
+- `IF cond THEN <line-number | statement-list> [ELSE <line-number | statement-list>]` — **the
+  THEN/ELSE clause's statement list extends to the end of the physical line**, it is not
+  terminated by the next colon the way top-level statements are. Falling off the end of a THEN/ELSE
+  clause jumps to the start of the *next source line*, never to a sibling colon-statement on the
+  `IF` line itself.
+- `FOR var = start TO end [STEP step]` / `NEXT [var[, var...]]` — runtime stack semantics (not
+  static lexical pairing), because `GOTO` may jump into/out of a loop body and a bare `NEXT` must
+  match the innermost open `FOR`. `NEXT` without a matching `FOR` is a `NEXT WITHOUT FOR` runtime
+  error.
+- `GOTO line-number`, `GOSUB line-number` / `RETURN`.
+- `ON expr GOTO line1, line2, ...` / `ON expr GOSUB line1, line2, ...` — 1-indexed selector. See
+  Open Decisions for out-of-range behavior (locked default: silent fallthrough, no error).
+- `WHILE cond` / `WEND` — **statically, lexically nested** (unlike `FOR`/`NEXT`), matched at
+  compile time.
+- `DIM var(size[, size2]) [, var2(...)...]` — 1D and 2D arrays only in v1. `DIM A(N)` allocates
+  indices `0..N` (length `N+1`). An array used without an explicit `DIM` defaults to size 10
+  (indices `0..10`, classic BASIC behavior). Out-of-bounds access is a `SUBSCRIPT OUT OF RANGE`
+  runtime error.
+- `DATA value, value, ...` — non-executable; all `DATA` statements in the program are collected
+  (in line order) into one flat pool before execution begins.
+- `READ var[, var...]` — advances a shared pointer into the `DATA` pool, coercing each value to
+  its target's suffix. Reading past the end is an `OUT OF DATA` runtime error.
+- `RESTORE [line-number]` — resets the `DATA` pointer to the start of the pool, or to the first
+  `DATA` value originating from the given line.
+- `DEF FN name(param[, param...]) = expr` — single-line user function. Parameters shadow locally;
+  any free variable referenced in the body reads live from the caller's variable state (confirm
+  and document exact scoping when implementing step 13).
+- `END` / `STOP` — halt execution (`pc = -1`).
+
+## Operators
+
+- Arithmetic: `+ - * /` (float division), `\` (integer division, truncating), `^` (exponent),
+  `MOD` (modulo — sign convention matches BASIC's truncating division, not JS's `%`).
+- String concatenation: `+` (context-determined by operand suffix, not a separate operator).
+- Comparison: `= <> < > <= >=`.
+- Logical: `AND OR NOT` — operate on BASIC's numeric-truthiness convention (0 = false, nonzero =
+  true, results are numeric), not JS's `&&`/`||`/`!`.
+- Precedence (highest to lowest): `^` › unary `-` › `* /` › `\` › `MOD` › `+ -` › comparisons ›
+  `NOT` › `AND` › `OR`. (Confirm against a reference implementation before locking in
+  `src/parser/precedence.ts`.)
+
+## Builtin functions (v1 scope)
+
+**String**: `LEFT$(s, n)`, `RIGHT$(s, n)`, `MID$(s, start[, len])` (omitted `len` = to end of
+string), `LEN(s)`, `CHR$(code)`, `ASC(s)` (error on empty string), `STR$(n)`, `VAL(s)` (parses a
+leading numeric prefix, ignoring surrounding whitespace; malformed input → `0`), `INSTR([start,]
+haystack, needle)` (returns `0`, not `-1`, when not found — BASIC convention, not JS's `indexOf`).
+
+**Math**: `INT(n)` (floor — distinct from `%`-suffix coercion, which rounds; see Type-suffix
+semantics), `ABS(n)`, `SQR(n)` (error on negative input), `RND[(n)]`, `SGN(n)`, `SIN`/`COS`/`TAN`.
+
+**PRINT formatting**: `TAB(n)`, `SPC(n)`.
+
+## Type-suffix semantics
+
+Coercion/truncation is enforced **at assignment time** (`LET`, `FOR`-variable update, `READ`,
+`INPUT`, array-element store), not on every intermediate expression — sub-expressions compute in
+whatever precision naturally arises; only the destination truncates/rounds.
+
+- `%` (integer): round-half-away-from-zero, then range-check `[-32768, 32767]`. Out-of-range
+  throws an `OVERFLOW` runtime error (see Open Decisions — no silent wraparound).
+- `!` / `#` (single/double): both map to JS's native `number`; kept as distinct named coercions in
+  code for clarity and future precision tuning, not because v1 enforces different precision.
+- `$` (string): identity coercion, but type-checks that the source is actually a string.
+- String/number mismatches (e.g. `A$ = A$ + 5`) are caught by a **compile-time** semantic pass
+  wherever the suffix is syntactically known — which is nearly always, since the suffix is part of
+  every identifier's spelling. (A deliberate DX improvement over real interpreters, which only
+  catch this at runtime.)
+
+## Runtime error taxonomy
+
+`SYNTAX`, `TYPE_MISMATCH`, `OVERFLOW`, `DIVISION_BY_ZERO`, `SUBSCRIPT_OUT_OF_RANGE`,
+`OUT_OF_DATA`, `UNDEFINED_LINE` (raised at **compile time** as a diagnostic, not deferred to
+runtime, since BASIC never computes jump targets dynamically), `RETURN_WITHOUT_GOSUB`,
+`NEXT_WITHOUT_FOR`, `ILLEGAL_FUNCTION_CALL`.
+
+## Open Decisions / Locked Defaults
+
+These behaviors vary across real historical BASIC interpreters and weren't pinned down by a single
+reference dialect. Defaults below were chosen deliberately and are considered **locked unless
+revisited explicitly** — if you change one, update this section and any golden tests it affects.
+
+- **`ON GOTO`/`ON GOSUB` out-of-range selector**: silently falls through to the next statement, no
+  error raised (matches GW-BASIC).
+- **`%` overflow**: throws a runtime `OVERFLOW` error. Does **not** silently wrap around.
+- **`RND`/`RANDOMIZE`**: backed by a seedable PRNG (mulberry32 or similar) for deterministic
+  tests. **Not** bit-compatible with any real GW-BASIC RNG sequence — golden tests that use `RND`
+  must call `RANDOMIZE <fixed-seed>` for determinism; do not attempt to match real-hardware output.
+- **`DEFINT`/`DEFSNG`/`DEFDBL`/`DEFSTR`**: out of scope for v1 entirely (not parsed, not
+  supported). Revisit if a real-world `.bas` listing needs them.
+- **Array dimensions**: 1D and 2D only in v1. 3D+ is out of scope until a concrete need appears.
+- **`IF`/`THEN`/`ELSE` clause-extends-to-end-of-line**: locked in, see Statements above — this is
+  the classic-BASIC-accurate behavior, not a simplification.
+- **`INT()` vs. `%`-suffix coercion**: deliberately different (floor vs. round) — matches real
+  GW-BASIC's differing behavior between the builtin function and suffix-driven assignment
+  coercion; do not "fix" this into consistency.
