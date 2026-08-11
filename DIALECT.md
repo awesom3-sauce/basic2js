@@ -76,8 +76,11 @@ build order progresses. Currently everything is `[ ]` — this is the target spe
 - Logical: `AND OR NOT` — operate on BASIC's numeric-truthiness convention (0 = false, nonzero =
   true, results are numeric), not JS's `&&`/`||`/`!`.
 - Precedence (highest to lowest): `^` › unary `-` › `* /` › `\` › `MOD` › `+ -` › comparisons ›
-  `NOT` › `AND` › `OR`. (Confirm against a reference implementation before locking in
-  `src/parser/precedence.ts`.)
+  `NOT` › `AND` › `OR`. Implemented and locked in `src/parser/precedence.ts` (build order step 6).
+  Comparisons produce a number, not a JS boolean — classic BASIC represents `TRUE` as `-1` and
+  `FALSE` as `0`. `AND`/`OR`/`NOT` are emitted as JS's bitwise `& | ~`, not logical `&& || !` — for
+  the common case of both operands being 0/-1 (comparison results) this is exactly logical
+  AND/OR/NOT; for arbitrary integers it's a true bitwise operation, matching real BASIC.
 
 ## Builtin functions (v1 scope)
 

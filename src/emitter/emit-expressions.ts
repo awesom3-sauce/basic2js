@@ -1,13 +1,14 @@
 // Expression -> JS source-text emission.
 //
-// Implemented (build order step 4): NumberLiteral, StringLiteral,
-// VariableRef, unary "-", and the arithmetic BinOps (+ - * / \ ^ MOD) —
-// exactly the Expression shapes the parser currently produces (see
-// src/parser/parse-expressions.ts). ArrayRef/CallExpr and the
-// comparison/AND/OR/NOT operators are defined in the AST already but have
-// explicit throwing cases here (backed by a final `assertNever`), same
-// defensive-backstop pattern as src/ir/lower-statements.ts — they land in
-// their own build-order steps (6, 10, 13/14).
+// Implemented: NumberLiteral, StringLiteral, VariableRef, unary "-"/"NOT",
+// and the full BinOp set — arithmetic (+ - * / \ ^ MOD, build order step
+// 4) plus comparisons and AND/OR (build order step 6) — exactly the
+// Expression shapes the parser currently produces (see
+// src/parser/parse-expressions.ts). ArrayRef/CallExpr are defined in the
+// AST already but have an explicit throwing case here (backed by a final
+// `assertNever`), same defensive-backstop pattern as
+// src/ir/lower-statements.ts — they land in their own build-order steps
+// (10, 13/14).
 //
 // Every composite sub-expression (UnaryExpr, BinaryExpr) is emitted fully
 // parenthesized, so nesting composes safely regardless of JS's own
@@ -58,9 +59,12 @@ function emitUnaryExpr(op: UnaryOp, operand: Expression): string {
       return `(-${emitExpression(operand)})`;
 
     case "NOT":
-      throw new Error(
-        'Internal error: emitting unary "NOT" is not implemented yet (build order step 6)',
-      );
+      // BASIC's NOT is a bitwise complement, not JS's logical "!" — see
+      // the BinaryExpr AND/OR case below for the same reasoning. For the
+      // common case of operands that are themselves comparison/logical
+      // results (0 = false, -1 = true), ~0 = -1 and ~(-1) = 0, which is
+      // exactly logical negation.
+      return `(~${emitExpression(operand)})`;
 
     default:
       return assertNever(op, "emitUnaryExpr");
@@ -101,16 +105,31 @@ function emitBinaryExpr(op: BinOp, left: Expression, right: Expression): string 
       return `(${l} % ${r})`;
 
     case "=":
+      return `(${l} === ${r} ? -1 : 0)`;
+
     case "<>":
+      return `(${l} !== ${r} ? -1 : 0)`;
+
     case "<":
     case ">":
     case "<=":
     case ">=":
+      // Classic BASIC represents TRUE as -1 and FALSE as 0, not JS's
+      // boolean true/false — comparisons produce a number so they compose
+      // with arithmetic/AND/OR the way BASIC expects (e.g. `-(A < B)`,
+      // `(A < B) + (C > D)`).
+      return `(${l} ${op} ${r} ? -1 : 0)`;
+
     case "AND":
+      // Bitwise, not JS's logical "&&" — matches BASIC's "operate on
+      // numeric-truthiness" AND/OR semantics (see DIALECT.md). For the
+      // common case of both operands being 0/-1 (comparison results),
+      // this is exactly logical AND; for arbitrary integers it's a true
+      // bitwise AND, matching real BASIC.
+      return `(${l} & ${r})`;
+
     case "OR":
-      throw new Error(
-        `Internal error: emitting binary "${op}" is not implemented yet (build order step 6)`,
-      );
+      return `(${l} | ${r})`;
 
     default:
       return assertNever(op, "emitBinaryExpr");

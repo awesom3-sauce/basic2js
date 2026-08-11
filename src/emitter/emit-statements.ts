@@ -9,16 +9,17 @@
 // per-case blocks). Wrapping every case uniformly avoids depending on
 // which kinds happen to need locals staying that way forever.
 //
-// Implemented (build order step 4, "linear/GOTO-only subset"): Print, Let,
-// Goto, NoOp, Halt — exactly the Step kinds lowering currently produces
-// (see src/ir/program.ts). INPUT (step 9) will be the only Step kind whose
-// case body contains an `await` beyond the print calls emitted here
-// (`rt.print` is always awaited too, for host symmetry — see
+// Implemented: Print, Let, Goto, NoOp, Halt (build order step 4) and If
+// (build order step 6) — exactly the Step kinds lowering currently
+// produces (see src/ir/program.ts). INPUT (step 9) will be the only Step
+// kind whose case body contains an `await` beyond the print calls emitted
+// here (`rt.print` is always awaited too, for host symmetry — see
 // src/runtime/interface.ts).
 
 import type { Step } from "../ir/program.js";
 import { emitExpression } from "./emit-expressions.js";
 import { emitPrintCall } from "./emit-print.js";
+import { emitJumpTarget } from "./emit-jump-target.js";
 import { varKey } from "./mangle.js";
 import { assertNever } from "../util/assert-never.js";
 
@@ -42,13 +43,10 @@ function emitStepBody(step: Step, stepIndex: number): string {
     }
 
     case "Goto":
-      // LINESTART resolves the raw BASIC line number to a step index at
-      // runtime — see emit-program.ts, which emits the table. An
-      // undefined-line-target GOTO currently produces `pc = undefined`,
-      // which matches no switch case and hits the default (halt) branch —
-      // a graceful-enough fallback until step 16 adds compile-time
-      // undefined-line-target validation.
-      return `pc = LINESTART[${step.target}]; break;`;
+      return `pc = ${emitJumpTarget(step.target)}; break;`;
+
+    case "If":
+      return `pc = (${emitExpression(step.condition)}) ? (${emitJumpTarget(step.thenTarget)}) : (${emitJumpTarget(step.elseTarget)}); break;`;
 
     case "NoOp":
       return `pc = ${stepIndex + 1}; break;`;

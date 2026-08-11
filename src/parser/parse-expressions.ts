@@ -1,18 +1,18 @@
 // Expression parsing via precedence-climbing (a Pratt-parser variant) —
-// see precedence.ts for the binding-power table and its current scope.
+// see precedence.ts for the binding-power table.
 //
-// Implemented (build order step 2): number/string literals, variable
-// references (with suffix), unary minus, parenthesized grouping, and
-// binary arithmetic expressions. ArrayRef/CallExpr parsing (an identifier
-// immediately followed by `(`) is deferred to steps 10/13/14 — for now an
-// identifier is always parsed as a bare VariableRef, so `A(1)` in an
-// expression position parses `A` as a VariableRef and then fails with a
-// ParseError at whatever unexpected `(` follows, rather than being
-// silently misinterpreted.
+// Implemented: number/string literals, variable references (with suffix),
+// unary `-`/`NOT`, parenthesized grouping, and the full binary operator
+// set (arithmetic, comparisons, AND/OR — build order step 6). ArrayRef/
+// CallExpr parsing (an identifier immediately followed by `(`) is deferred
+// to steps 10/13/14 — for now an identifier is always parsed as a bare
+// VariableRef, so `A(1)` in an expression position parses `A` as a
+// VariableRef and then fails with a ParseError at whatever unexpected `(`
+// follows, rather than being silently misinterpreted.
 
 import type { Expression } from "../ast/expressions.js";
 import { splitSuffix } from "./identifier.js";
-import { lookupBinaryOp, UNARY_MINUS_PRECEDENCE } from "./precedence.js";
+import { lookupBinaryOp, UNARY_MINUS_PRECEDENCE, UNARY_NOT_PRECEDENCE } from "./precedence.js";
 import { numberValue, stringValue } from "./token-value.js";
 import { ParseError } from "./errors.js";
 import type { TokenCursor } from "./token-cursor.js";
@@ -38,6 +38,11 @@ function parseUnary(cursor: TokenCursor): Expression {
     cursor.advance();
     const operand = parseExpression(cursor, UNARY_MINUS_PRECEDENCE);
     return { kind: "UnaryExpr", op: "-", operand };
+  }
+  if (cursor.check("Keyword", "NOT")) {
+    cursor.advance();
+    const operand = parseExpression(cursor, UNARY_NOT_PRECEDENCE);
+    return { kind: "UnaryExpr", op: "NOT", operand };
   }
   return parsePrimary(cursor);
 }

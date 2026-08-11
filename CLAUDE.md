@@ -242,4 +242,21 @@ the relevant step above — that's the intended landing spot for each piece of r
   `goto-basics` demonstrates backward-jump correctness via an unconditional jump straight into an
   `END`, not a true bounded loop; a real counting-loop golden test should be added once step 6 lands.
 
-Next: step 6, `IF`/`THEN`/`ELSE` + full operator precedence (comparisons, `AND`/`OR`/`NOT`).
+- Step 6 (`IF`/`THEN`/`ELSE` + full precedence) — `src/parser/precedence.ts` now has the complete
+  table (comparisons at one level, `AND`/`OR` below, `NOT`'s virtual unary precedence between the
+  two). `src/ir/program.ts` gained `JumpTarget` (`{line}` resolved via `LINESTART` at runtime,
+  `{step}` a literal index computed during lowering, `{halt}` for "no next line exists") and
+  `IfStep`; `GotoStep.target` was generalized from a raw number to a `JumpTarget` for consistency.
+  `src/ir/lower-statements.ts`'s `lowerIfStmt` flattens THEN/ELSE branches into steps immediately
+  following the `IfStep`, inserting a skip-jump only when _both_ branches are inline statement
+  lists (otherwise nothing needs skipping over) — worked out from first principles and verified by
+  19 lowering tests before ever running emitted code. `src/emitter/emit-jump-target.ts` centralizes
+  `JumpTarget → JS` for both `Goto` and `If`; comparisons emit `? -1 : 0` (classic BASIC's numeric
+  TRUE/FALSE) and `AND`/`OR`/`NOT` emit JS's bitwise `& | ~` (matching BASIC's "operate on
+  numeric-truthiness" semantics, not JS's logical `&& || !`). Two real parser bugs found and fixed
+  while wiring this up: PRINT didn't know to stop before a bare `ELSE` keyword when inside an IF
+  branch, and (from step 4) nothing had yet exercised `IF` deeply enough to catch it. `goto-basics`
+  and a new `fizzbuzz` golden program (GOTO/IF-based, since `FOR`/`NEXT` isn't implemented yet) both
+  pass; the counting-loop golden test deferred at step 5 is now a real behavioral test.
+
+Next: step 7, `FOR`/`NEXT` with `STEP` (runtime stack semantics).

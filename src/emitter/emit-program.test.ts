@@ -167,3 +167,102 @@ describe("emit — colon-separated statements", () => {
     expect(rt.output).toBe(" 3 \n");
   });
 });
+
+describe("emit — comparisons and logical operators", () => {
+  it("represents TRUE as -1 and FALSE as 0, classic-BASIC style", async () => {
+    const rt = await runBasic("10 PRINT 1 = 1\n20 PRINT 1 = 2");
+    expect(rt.output).toBe("-1 \n 0 \n");
+  });
+
+  it("evaluates every comparison operator", async () => {
+    const rt = await runBasic(
+      [
+        "10 PRINT 1 <> 2",
+        "20 PRINT 1 < 2",
+        "30 PRINT 2 > 1",
+        "40 PRINT 1 <= 1",
+        "50 PRINT 1 >= 1",
+      ].join("\n"),
+    );
+    expect(rt.output).toBe("-1 \n-1 \n-1 \n-1 \n-1 \n");
+  });
+
+  it("evaluates AND/OR bitwise, matching logical AND/OR for 0/-1 operands", async () => {
+    const rt = await runBasic("10 PRINT (1 = 1) AND (2 = 2)\n20 PRINT (1 = 1) AND (2 = 3)");
+    expect(rt.output).toBe("-1 \n 0 \n");
+    const rt2 = await runBasic("10 PRINT (1 = 2) OR (2 = 2)\n20 PRINT (1 = 2) OR (2 = 3)");
+    expect(rt2.output).toBe("-1 \n 0 \n");
+  });
+
+  it("evaluates NOT as bitwise complement, matching logical NOT for 0/-1 operands", async () => {
+    const rt = await runBasic("10 PRINT NOT (1 = 1)\n20 PRINT NOT (1 = 2)");
+    expect(rt.output).toBe(" 0 \n-1 \n");
+  });
+
+  it("compares strings lexicographically", async () => {
+    const rt = await runBasic('10 PRINT "APPLE" = "APPLE"\n20 PRINT "APPLE" < "BANANA"');
+    expect(rt.output).toBe("-1 \n-1 \n");
+  });
+});
+
+describe("emit — IF/THEN/ELSE", () => {
+  it("takes the THEN branch (a GOTO line target) when the condition is true", async () => {
+    const rt = await runBasic('10 IF 1 = 1 THEN 30\n20 PRINT "SKIPPED"\n30 PRINT "THEN"');
+    expect(rt.output).toBe("THEN\n");
+  });
+
+  it("falls through past the THEN line target when the condition is false", async () => {
+    const rt = await runBasic('10 IF 1 = 2 THEN 30\n20 PRINT "FALLTHROUGH"\n30 PRINT "THEN"');
+    expect(rt.output).toBe("FALLTHROUGH\nTHEN\n");
+  });
+
+  it("takes the ELSE branch (a GOTO line target) when the condition is false", async () => {
+    const rt = await runBasic(
+      '10 IF 1 = 2 THEN 30 ELSE 40\n20 END\n30 PRINT "THEN"\n40 PRINT "ELSE"',
+    );
+    expect(rt.output).toBe("ELSE\n");
+  });
+
+  it("executes an inline THEN statement list when true", async () => {
+    const rt = await runBasic('10 IF 1 = 1 THEN PRINT "A": PRINT "B"\n20 PRINT "NEXT LINE"');
+    expect(rt.output).toBe("A\nB\nNEXT LINE\n");
+  });
+
+  it("skips an inline THEN statement list when false, with no ELSE", async () => {
+    const rt = await runBasic('10 IF 1 = 2 THEN PRINT "A": PRINT "B"\n20 PRINT "NEXT LINE"');
+    expect(rt.output).toBe("NEXT LINE\n");
+  });
+
+  it("executes the inline ELSE statement list when false, never falling into it from THEN", async () => {
+    const rt = await runBasic('10 IF 1 = 2 THEN PRINT "A" ELSE PRINT "B"\n20 PRINT "NEXT LINE"');
+    expect(rt.output).toBe("B\nNEXT LINE\n");
+  });
+
+  it("executes only the THEN branch when true, never falling through into ELSE", async () => {
+    const rt = await runBasic('10 IF 1 = 1 THEN PRINT "A" ELSE PRINT "B"\n20 PRINT "NEXT LINE"');
+    expect(rt.output).toBe("A\nNEXT LINE\n");
+  });
+
+  it("supports nested IF inside a THEN branch", async () => {
+    const rt = await runBasic('10 IF 1 = 1 THEN IF 2 = 2 THEN PRINT "BOTH TRUE"\n20 PRINT "DONE"');
+    expect(rt.output).toBe("BOTH TRUE\nDONE\n");
+  });
+
+  it("halts gracefully when a THEN branch falls off the end of the last line with no next line", async () => {
+    const rt = await runBasic('10 IF 1 = 1 THEN PRINT "ONLY"');
+    expect(rt.output).toBe("ONLY\n");
+  });
+
+  it("runs a real bounded counting loop, now that IF/THEN provides a way to escape GOTO", async () => {
+    const rt = await runBasic(
+      [
+        "10 LET N = 1",
+        "20 PRINT N",
+        "30 LET N = N + 1",
+        "40 IF N <= 5 THEN 20",
+        '50 PRINT "DONE"',
+      ].join("\n"),
+    );
+    expect(rt.output).toBe(" 1 \n 2 \n 3 \n 4 \n 5 \nDONE\n");
+  });
+});

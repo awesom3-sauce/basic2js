@@ -7,13 +7,17 @@
 
 import type { Program } from "../ast/program.js";
 import type { LoweredProgram, Step } from "./program.js";
-import { lowerStatement } from "./lower-statements.js";
+import { lowerStatementList } from "./lower-statements.js";
 
 export function lower(program: Program): LoweredProgram {
   const steps: Step[] = [];
   const lineToStep = new Map<number, number>();
 
-  for (const line of program.lines) {
+  for (let i = 0; i < program.lines.length; i++) {
+    // Safe: i < program.lines.length.
+    const line = program.lines[i]!;
+    const nextLineNumber = program.lines[i + 1]?.lineNumber;
+
     // Recorded before this line's own steps are pushed, so a line with no
     // statements of its own (e.g. a bare "100") naturally aliases to
     // whatever step comes next — either the next line's first statement,
@@ -22,9 +26,13 @@ export function lower(program: Program): LoweredProgram {
     // case needed for empty lines.
     lineToStep.set(line.lineNumber, steps.length);
 
-    for (const statement of line.statements) {
-      steps.push(...lowerStatement(statement, line.lineNumber));
-    }
+    const lowered = lowerStatementList(
+      line.statements,
+      line.lineNumber,
+      steps.length,
+      nextLineNumber,
+    );
+    steps.push(...lowered);
   }
 
   return { steps, lineToStep };

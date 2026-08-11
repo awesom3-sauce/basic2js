@@ -4,7 +4,7 @@ import { parse } from "./parser.js";
 import { ParseError } from "./errors.js";
 import type { Program } from "../ast/program.js";
 import type { Expression } from "../ast/expressions.js";
-import type { LetStmt } from "../ast/statements.js";
+import type { IfStmt, LetStmt } from "../ast/statements.js";
 
 function parseSource(source: string): Program {
   return parse(tokenize(source));
@@ -258,7 +258,173 @@ describe("parse — lines and program structure", () => {
 
 describe("parse — not-yet-implemented statements", () => {
   it("raises a clear error for a keyword without parser support yet", () => {
-    expect(() => parseSource("10 IF 1 THEN 20")).toThrow(ParseError);
-    expect(() => parseSource("10 IF 1 THEN 20")).toThrow(/not implemented yet/);
+    expect(() => parseSource("10 FOR I = 1 TO 10")).toThrow(ParseError);
+    expect(() => parseSource("10 FOR I = 1 TO 10")).toThrow(/not implemented yet/);
+  });
+});
+
+describe("parse — IF/THEN/ELSE", () => {
+  it("parses a bare IF/THEN <line> with no ELSE", () => {
+    const stmt = firstStatement("10 IF X = 1 THEN 100");
+    expect(stmt).toEqual({
+      kind: "IfStmt",
+      condition: {
+        kind: "BinaryExpr",
+        op: "=",
+        left: { kind: "VariableRef", name: "x", suffix: "" },
+        right: { kind: "NumberLiteral", value: 1 },
+      },
+      thenBranch: { kind: "GotoLine", lineNumber: 100 },
+      elseBranch: undefined,
+    });
+  });
+
+  it("parses IF/THEN <line> ELSE <line>", () => {
+    const stmt = firstStatement("10 IF X THEN 100 ELSE 200");
+    expect(stmt).toEqual({
+      kind: "IfStmt",
+      condition: { kind: "VariableRef", name: "x", suffix: "" },
+      thenBranch: { kind: "GotoLine", lineNumber: 100 },
+      elseBranch: { kind: "GotoLine", lineNumber: 200 },
+    });
+  });
+
+  it("parses an inline THEN statement list extending to end of line, ignoring colons as terminators", () => {
+    const statements = firstLineStatements('10 IF X THEN PRINT "A": PRINT "B"');
+    expect(statements).toHaveLength(1);
+    const ifStmt = statements[0] as IfStmt;
+    expect(ifStmt.thenBranch).toEqual({
+      kind: "Statements",
+      statements: [
+        {
+          kind: "PrintStmt",
+          segments: [{ kind: "value", expr: { kind: "StringLiteral", value: "A" } }],
+        },
+        {
+          kind: "PrintStmt",
+          segments: [{ kind: "value", expr: { kind: "StringLiteral", value: "B" } }],
+        },
+      ],
+    });
+  });
+
+  it("parses an inline THEN ... ELSE ... where PRINT correctly stops before ELSE", () => {
+    const stmt = firstStatement('10 IF X THEN PRINT "A" ELSE PRINT "B"') as IfStmt;
+    expect(stmt.thenBranch).toEqual({
+      kind: "Statements",
+      statements: [
+        {
+          kind: "PrintStmt",
+          segments: [{ kind: "value", expr: { kind: "StringLiteral", value: "A" } }],
+        },
+      ],
+    });
+    expect(stmt.elseBranch).toEqual({
+      kind: "Statements",
+      statements: [
+        {
+          kind: "PrintStmt",
+          segments: [{ kind: "value", expr: { kind: "StringLiteral", value: "B" } }],
+        },
+      ],
+    });
+  });
+
+  it("supports nested IF inside a THEN branch", () => {
+    const stmt = firstStatement("10 IF X THEN IF Y THEN 100") as IfStmt;
+    expect(stmt.thenBranch).toEqual({
+      kind: "Statements",
+      statements: [
+        {
+          kind: "IfStmt",
+          condition: { kind: "VariableRef", name: "y", suffix: "" },
+          thenBranch: { kind: "GotoLine", lineNumber: 100 },
+          elseBranch: undefined,
+        },
+      ],
+    });
+  });
+});
+
+describe("parse — comparisons and logical operators", () => {
+  it("parses comparison operators", () => {
+    expect(letValue("10 LET A = 1 = 2")).toEqual({
+      kind: "BinaryExpr",
+      op: "=",
+      left: { kind: "NumberLiteral", value: 1 },
+      right: { kind: "NumberLiteral", value: 2 },
+    });
+    expect((letValue("10 LET A = 1 <> 2") as { op: string }).op).toBe("<>");
+    expect((letValue("10 LET A = 1 <= 2") as { op: string }).op).toBe("<=");
+    expect((letValue("10 LET A = 1 >= 2") as { op: string }).op).toBe(">=");
+  });
+
+  it("gives arithmetic higher precedence than comparisons", () => {
+    // 1 + 2 = 3 should parse as (1 + 2) = 3, not 1 + (2 = 3).
+    expect(letValue("10 LET A = 1 + 2 = 3")).toEqual({
+      kind: "BinaryExpr",
+      op: "=",
+      left: {
+        kind: "BinaryExpr",
+        op: "+",
+        left: { kind: "NumberLiteral", value: 1 },
+        right: { kind: "NumberLiteral", value: 2 },
+      },
+      right: { kind: "NumberLiteral", value: 3 },
+    });
+  });
+
+  it("gives comparisons higher precedence than AND/OR", () => {
+    // A > 1 AND B > 2 should parse as (A > 1) AND (B > 2).
+    expect(letValue("10 LET Z = A > 1 AND B > 2")).toEqual({
+      kind: "BinaryExpr",
+      op: "AND",
+      left: {
+        kind: "BinaryExpr",
+        op: ">",
+        left: { kind: "VariableRef", name: "a", suffix: "" },
+        right: { kind: "NumberLiteral", value: 1 },
+      },
+      right: {
+        kind: "BinaryExpr",
+        op: ">",
+        left: { kind: "VariableRef", name: "b", suffix: "" },
+        right: { kind: "NumberLiteral", value: 2 },
+      },
+    });
+  });
+
+  it("gives AND higher precedence than OR", () => {
+    // A AND B OR C should parse as (A AND B) OR C.
+    expect(letValue("10 LET Z = A AND B OR C")).toEqual({
+      kind: "BinaryExpr",
+      op: "OR",
+      left: {
+        kind: "BinaryExpr",
+        op: "AND",
+        left: { kind: "VariableRef", name: "a", suffix: "" },
+        right: { kind: "VariableRef", name: "b", suffix: "" },
+      },
+      right: { kind: "VariableRef", name: "c", suffix: "" },
+    });
+  });
+
+  it("parses NOT with higher precedence than AND but lower than comparisons", () => {
+    // NOT A > B AND C should parse as (NOT (A > B)) AND C.
+    expect(letValue("10 LET Z = NOT A > B AND C")).toEqual({
+      kind: "BinaryExpr",
+      op: "AND",
+      left: {
+        kind: "UnaryExpr",
+        op: "NOT",
+        operand: {
+          kind: "BinaryExpr",
+          op: ">",
+          left: { kind: "VariableRef", name: "a", suffix: "" },
+          right: { kind: "VariableRef", name: "b", suffix: "" },
+        },
+      },
+      right: { kind: "VariableRef", name: "c", suffix: "" },
+    });
   });
 });

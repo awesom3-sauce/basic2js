@@ -4,7 +4,7 @@ import { parse } from "../parser/parser.js";
 import { lower } from "./lowering.js";
 import { lowerStatement } from "./lower-statements.js";
 import type { LoweredProgram } from "./program.js";
-import type { IfStmt } from "../ast/statements.js";
+import type { ForStmt } from "../ast/statements.js";
 
 function lowerSource(source: string): LoweredProgram {
   return lower(parse(tokenize(source)));
@@ -36,7 +36,7 @@ describe("lower — statement kinds", () => {
 
   it("lowers GOTO into a Goto step carrying the raw, unresolved target line number", () => {
     const { steps } = lowerSource("10 GOTO 40");
-    expect(steps).toEqual([{ kind: "Goto", line: 10, target: 40 }]);
+    expect(steps).toEqual([{ kind: "Goto", line: 10, target: { kind: "line", line: 40 } }]);
   });
 
   it("lowers REM into a NoOp step", () => {
@@ -50,14 +50,87 @@ describe("lower — statement kinds", () => {
   });
 
   it("throws a clear internal error when asked to lower an unsupported statement kind", () => {
-    // Bypasses the parser (which never produces IfStmt yet) to exercise
+    // Bypasses the parser (which never produces ForStmt yet) to exercise
     // lower-statements.ts's defensive backstop directly.
-    const fakeIfStmt: IfStmt = {
-      kind: "IfStmt",
-      condition: { kind: "NumberLiteral", value: 1 },
-      thenBranch: { kind: "GotoLine", lineNumber: 20 },
+    const fakeForStmt: ForStmt = {
+      kind: "ForStmt",
+      variable: "i",
+      suffix: "",
+      start: { kind: "NumberLiteral", value: 1 },
+      end: { kind: "NumberLiteral", value: 10 },
     };
-    expect(() => lowerStatement(fakeIfStmt, 10)).toThrow(/not implemented yet/);
+    expect(() =>
+      lowerStatement(fakeForStmt, 10, { stepIndexOffset: 0, nextLineNumber: undefined }),
+    ).toThrow(/not implemented yet/);
+  });
+});
+
+describe("lower — IF/THEN/ELSE", () => {
+  it("lowers a bare IF/THEN <line> with no ELSE into a single If step", () => {
+    const { steps } = lowerSource("10 IF X = 1 THEN 30\n20 PRINT 1\n30 PRINT 2");
+    expect(steps[0]).toEqual({
+      kind: "If",
+      line: 10,
+      condition: {
+        kind: "BinaryExpr",
+        op: "=",
+        left: { kind: "VariableRef", name: "x", suffix: "" },
+        right: { kind: "NumberLiteral", value: 1 },
+      },
+      thenTarget: { kind: "line", line: 30 },
+      elseTarget: { kind: "line", line: 20 }, // falls through to the next source line
+    });
+    expect(steps).toHaveLength(3); // If(10), Print(20), Print(30)
+  });
+
+  it("lowers IF/THEN <line> ELSE <line> with no extra steps", () => {
+    const { steps } = lowerSource("10 IF X THEN 30 ELSE 40\n20 END");
+    expect(steps).toEqual([
+      {
+        kind: "If",
+        line: 10,
+        condition: { kind: "VariableRef", name: "x", suffix: "" },
+        thenTarget: { kind: "line", line: 30 },
+        elseTarget: { kind: "line", line: 40 },
+      },
+      { kind: "Halt", line: 20 },
+    ]);
+  });
+
+  it("lowers an inline THEN statement list into steps immediately following the If step", () => {
+    const { steps } = lowerSource('10 IF X THEN PRINT "A": PRINT "B"\n20 PRINT "NEXT LINE"');
+    expect(steps.map((s) => s.kind)).toEqual(["If", "Print", "Print", "Print"]);
+    const ifStep = steps[0]!;
+    if (ifStep.kind !== "If") throw new Error("expected If step");
+    expect(ifStep.thenTarget).toEqual({ kind: "step", index: 1 });
+    // No ELSE branch: falling off THEN's steps should reach the next
+    // source line, and (since there's no ELSE with its own steps to skip
+    // over) elseTarget goes straight there too, with no extra skip-jump.
+    expect(ifStep.elseTarget).toEqual({ kind: "line", line: 20 });
+  });
+
+  it("inserts a skip-jump after an inline THEN so it can't fall through into an inline ELSE", () => {
+    const { steps } = lowerSource('10 IF X THEN PRINT "A" ELSE PRINT "B"\n20 PRINT "NEXT"');
+    // If(0), Print("A")(1), Goto-skip(2), Print("B")(3), Print("NEXT")(4)
+    expect(steps.map((s) => s.kind)).toEqual(["If", "Print", "Goto", "Print", "Print"]);
+    const ifStep = steps[0]!;
+    const skipStep = steps[2]!;
+    if (ifStep.kind !== "If" || skipStep.kind !== "Goto") throw new Error("unexpected step kinds");
+    expect(ifStep.thenTarget).toEqual({ kind: "step", index: 1 });
+    expect(ifStep.elseTarget).toEqual({ kind: "step", index: 3 });
+    expect(skipStep.target).toEqual({ kind: "line", line: 20 }); // skips over the ELSE steps
+  });
+
+  it("uses a halt target when an IF's branch falls off the end of the last line", () => {
+    const { steps } = lowerSource('10 IF X THEN PRINT "A"');
+    const ifStep = steps[0]!;
+    if (ifStep.kind !== "If") throw new Error("expected If step");
+    expect(ifStep.elseTarget).toEqual({ kind: "halt" });
+  });
+
+  it("supports a nested IF inside a THEN branch", () => {
+    const { steps } = lowerSource("10 IF X THEN IF Y THEN 30\n20 END\n30 END");
+    expect(steps.map((s) => s.kind)).toEqual(["If", "If", "Halt", "Halt"]);
   });
 });
 
@@ -113,7 +186,7 @@ describe("lower — lineToStep index", () => {
   it("does not resolve GOTO targets to step indices — that's left to the emitter (step 4)", () => {
     const { steps, lineToStep } = lowerSource("10 GOTO 30\n20 PRINT 1\n30 PRINT 2");
     const gotoStep = steps[0];
-    expect(gotoStep).toEqual({ kind: "Goto", line: 10, target: 30 });
+    expect(gotoStep).toEqual({ kind: "Goto", line: 10, target: { kind: "line", line: 30 } });
     // The information needed to resolve it is available in lineToStep, though.
     expect(lineToStep.get(30)).toBe(steps.findIndex((s) => s.kind === "Print" && s.line === 30));
   });
