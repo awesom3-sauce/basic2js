@@ -190,7 +190,17 @@ the scaffolding plan (git history); summary:
 Every `src/**` file not yet reached by this build order is a stub with a `TODO` comment pointing at
 the relevant step above — that's the intended landing spot for each piece of real implementation.
 
-**Progress**: step 1 (minimal lexer) is implemented — see `src/lexer/{token,keywords,lex-error,lexer}.ts`
-and its colocated `lexer.test.ts`. It's dialect-complete on the keyword/operator table (a lookup
-table costs nothing to fill in early) even though only steps 1's statement/expression subset has a
-parser yet. Next: step 2, the AST + parser for that same minimal subset.
+**Progress**: steps 1–2 are implemented.
+- Step 1 (minimal lexer) — `src/lexer/{token,keywords,lex-error,lexer}.ts` + colocated `lexer.test.ts`.
+  It's dialect-complete on the keyword/operator table (a lookup table costs nothing to fill in
+  early) even though only a subset has a parser yet.
+- Step 2 (AST + parser) — `src/ast/{types,expressions,statements,program,index}.ts` define the full
+  node-shape reference for every statement/expression kind (again, cheap to fill in as types now);
+  `src/parser/{errors,token-cursor,token-value,identifier,precedence,parse-expressions,parse-statements,parser}.ts`
+  implement parsing for PRINT, LET (explicit and implicit assignment), GOTO, REM/`'` comments, END,
+  and STOP, plus full arithmetic-expression precedence (unary `-`, `^`, `* / \`, `MOD`, `+ -`,
+  parenthesized grouping). Every other keyword the lexer recognizes raises a clear "not implemented
+  yet" `ParseError` naming the keyword, rather than being silently mis-parsed. `src/util/assert-never.ts`
+  is in place for the exhaustiveness convention, ready for step 3's lowering to start using it.
+
+Next: step 3, lowering (`Program → Step[] + lineToStep`) for this same linear/GOTO-only subset.

@@ -1,7 +1,8 @@
-// Shared AST primitive types.
-//
-// TODO (build order step 2, see DIALECT.md for suffix semantics):
-// export type TypeSuffix = '%' | '!' | '#' | '$' | '';
-// export type BasicValue = number | string;
+// Shared AST primitive types. See DIALECT.md's "Type-suffix semantics"
+// section for what each suffix means.
 
-export {};
+/** BASIC's variable type suffixes. `""` = untyped, defaults to single precision. */
+export type TypeSuffix = "%" | "!" | "#" | "$" | "";
+
+/** The runtime value shapes a BASIC expression can evaluate to. */
+export type BasicValue = number | string;

@@ -1,7 +1,12 @@
 // Parser error type.
-// TODO (build order step 2):
-// export class ParseError extends Error {
-//   constructor(message: string, public line: number, public col: number) { super(message); }
-// }
 
-export {};
+export class ParseError extends Error {
+  constructor(
+    message: string,
+    public readonly line: number,
+    public readonly col: number,
+  ) {
+    super(`${message} (line ${line}, col ${col})`);
+    this.name = "ParseError";
+  }
+}
