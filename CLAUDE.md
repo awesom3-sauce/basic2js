@@ -86,6 +86,10 @@ in [DIALECT.md](DIALECT.md).
   calling an `assertNever(x: never)` helper, so adding a new AST node kind without updating every
   consumer is a **compile error**, not a silent runtime bug.
 - **Strict TypeScript, no unjustified `any`.**
+- **Relative imports in `src/**`/`tests/**` need an explicit `.js` extension** (e.g.
+  `import { tokenize } from "./lexer.js"` even though the file is `lexer.ts`) — the root
+  `tsconfig.json` uses `NodeNext` module resolution, which requires this. `web/**` uses Vite's
+  `Bundler` resolution instead and does not need it.
 - **Colocated unit tests, cross-cutting golden tests.** `src/lexer/lexer.test.ts` sits next to
   `lexer.ts`; full end-to-end sample programs live under `tests/golden/programs/`. See "Testing"
   below.
@@ -183,5 +187,10 @@ the scaffolding plan (git history); summary:
 19. CLI polish (`--standalone`, `--emit-ast`, `--emit-steps`, help text, exit codes).
 20. Final docs pass.
 
-Every `src/**` file currently in the repo is a stub with a `TODO` comment pointing at the relevant
-step above — that's the intended landing spot for each piece of real implementation.
+Every `src/**` file not yet reached by this build order is a stub with a `TODO` comment pointing at
+the relevant step above — that's the intended landing spot for each piece of real implementation.
+
+**Progress**: step 1 (minimal lexer) is implemented — see `src/lexer/{token,keywords,lex-error,lexer}.ts`
+and its colocated `lexer.test.ts`. It's dialect-complete on the keyword/operator table (a lookup
+table costs nothing to fill in early) even though only steps 1's statement/expression subset has a
+parser yet. Next: step 2, the AST + parser for that same minimal subset.
