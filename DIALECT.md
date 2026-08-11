@@ -16,7 +16,7 @@ build order progresses. Currently everything is `[ ]` — this is the target spe
 - **Case-insensitivity**: all BASIC syntax — keywords and identifiers — is case-insensitive and
   normalized internally (`PRINT`, `Print`, `print` are identical; `A`, `a` are the same variable).
   **String literal contents are never touched by this normalization** — `"Hello"` and `"HELLO"`
-  remain distinct string *values*. This split is a common source of bugs; keep it explicit in any
+  remain distinct string _values_. This split is a common source of bugs; keep it explicit in any
   code that touches identifiers vs. string data.
 - **Type suffixes** (`%` integer, `!` single-precision, `#` double-precision, `$` string) are part
   of an identifier's spelling — `A`, `A%`, `A$` are three distinct variables. No suffix defaults to
@@ -39,7 +39,7 @@ build order progresses. Currently everything is `[ ]` — this is the target spe
 - `IF cond THEN <line-number | statement-list> [ELSE <line-number | statement-list>]` — **the
   THEN/ELSE clause's statement list extends to the end of the physical line**, it is not
   terminated by the next colon the way top-level statements are. Falling off the end of a THEN/ELSE
-  clause jumps to the start of the *next source line*, never to a sibling colon-statement on the
+  clause jumps to the start of the _next source line_, never to a sibling colon-statement on the
   `IF` line itself.
 - `FOR var = start TO end [STEP step]` / `NEXT [var[, var...]]` — runtime stack semantics (not
   static lexical pairing), because `GOTO` may jump into/out of a loop body and a bare `NEXT` must
@@ -68,7 +68,9 @@ build order progresses. Currently everything is `[ ]` — this is the target spe
 ## Operators
 
 - Arithmetic: `+ - * /` (float division), `\` (integer division, truncating), `^` (exponent),
-  `MOD` (modulo — sign convention matches BASIC's truncating division, not JS's `%`).
+  `MOD` (modulo, truncating-division remainder — sign follows the dividend, which is exactly what
+  JS's `%` already computes; emitted directly as JS `%`, verified against Microsoft BASIC's
+  documented MOD behavior).
 - String concatenation: `+` (context-determined by operand suffix, not a separate operator).
 - Comparison: `= <> < > <= >=`.
 - Logical: `AND OR NOT` — operate on BASIC's numeric-truthiness convention (0 = false, nonzero =
@@ -132,3 +134,11 @@ revisited explicitly** — if you change one, update this section and any golden
 - **`INT()` vs. `%`-suffix coercion**: deliberately different (floor vs. round) — matches real
   GW-BASIC's differing behavior between the builtin function and suffix-driven assignment
   coercion; do not "fix" this into consistency.
+- **`,` tab-zone padding in PRINT**: computed from a column counter that resets to 0 at the start
+  of every PRINT statement (see `src/emitter/emit-print.ts`), not tracked across statements or
+  lines. A previous PRINT ending in `;`/`,` (suppressing its newline) leaves the real terminal
+  cursor at a nonzero column this doesn't account for. Revisit if real cross-statement column
+  tracking turns out to matter for a golden program.
+- **Integer division `\`**: emitted as `Math.trunc(left / right)`. Real GW-BASIC may round each
+  operand to an integer _before_ dividing rather than just truncating the final quotient —
+  unverified; revisit in step 14/16 polish if it matters for a golden program.

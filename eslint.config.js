@@ -2,6 +2,7 @@
 import js from "@eslint/js";
 import tseslint from "@typescript-eslint/eslint-plugin";
 import tsparser from "@typescript-eslint/parser";
+import globals from "globals";
 import prettier from "eslint-config-prettier";
 
 export default [
@@ -25,6 +26,20 @@ export default [
       // reminder, not a substitute for that pattern.
       "@typescript-eslint/no-explicit-any": "warn",
       "@typescript-eslint/no-unused-vars": ["warn", { argsIgnorePattern: "^_" }],
+    },
+  },
+  {
+    // The compiler core, CLI, and test helpers run under Node.
+    files: ["src/**/*.ts", "tests/**/*.ts", "*.config.ts", "*.config.js"],
+    languageOptions: {
+      globals: globals.node,
+    },
+  },
+  {
+    // The web UI runs in the browser.
+    files: ["web/src/**/*.ts", "web/src/**/*.tsx"],
+    languageOptions: {
+      globals: globals.browser,
     },
   },
   {

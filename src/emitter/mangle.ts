@@ -1,9 +1,13 @@
 // Identifier -> safe runtime-object key encoding.
 //
-// TODO (build order step 3): BASIC variables/arrays are stored as
-// string-keyed entries in the generated code's local V (scalars) / ARR
-// (arrays) objects, never as bare JS identifiers — this sidesteps reserved-
-// word collisions entirely (V['class'] is always legal). export function
-// varKey(name: string, suffix: TypeSuffix): string, e.g. name + suffix.
+// BASIC variables/arrays are stored as string-keyed entries in the emitted
+// code's local V (scalars) / ARR (arrays, step 10) objects, never as bare
+// JS identifiers — this sidesteps reserved-word collisions entirely
+// (V["class"] is always legal even though `class` is a JS keyword).
 
-export {};
+import type { TypeSuffix } from "../ast/types.js";
+
+/** `name` is already lowercased by the lexer/parser; the suffix is appended verbatim. */
+export function varKey(name: string, suffix: TypeSuffix): string {
+  return name + suffix;
+}

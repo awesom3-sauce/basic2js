@@ -33,7 +33,7 @@ nothing else should reach into `src/lexer`, `src/parser`, etc. directly.
 ## The core architectural idea: the dispatch-loop / virtual-PC emitter
 
 BASIC's `GOTO`/`GOSUB`/`ON...GOTO` don't map onto structured JS control flow. Instead of trying to
-reconstruct structured `if`/`while` from arbitrary jumps, every BASIC *statement* (not line —
+reconstruct structured `if`/`while` from arbitrary jumps, every BASIC _statement_ (not line —
 colon-separated statements each get their own slot) is lowered to one `case` in a JS
 `while (pc !== -1) { switch (pc) { ... } }` loop, running inside a single `async function run(rt)`.
 `GOTO`/`GOSUB` become `pc = <target>; continue;`. `INPUT` is the only place that `await`s,
@@ -69,8 +69,8 @@ per the build order below):
 BASIC's `%`/`!`/`#`/`$` suffixes are tracked in the AST (`TypeSuffix` in `src/ast/types.ts`) and
 enforced **at assignment time** (`LET`, `FOR` loop-variable update, `READ`, `INPUT`, array-element
 store), not on every intermediate expression — matching real BASIC. Coercion helpers live in
-`src/runtime/shared/values.ts`. All BASIC *syntax* (keywords, identifiers) is case-insensitive and
-normalized; string *literal contents* are never touched by that normalization. Full semantics are
+`src/runtime/shared/values.ts`. All BASIC _syntax_ (keywords, identifiers) is case-insensitive and
+normalized; string _literal contents_ are never touched by that normalization. Full semantics are
 in [DIALECT.md](DIALECT.md).
 
 ## Conventions
@@ -191,6 +191,7 @@ Every `src/**` file not yet reached by this build order is a stub with a `TODO` 
 the relevant step above — that's the intended landing spot for each piece of real implementation.
 
 **Progress**: steps 1–2 are implemented.
+
 - Step 1 (minimal lexer) — `src/lexer/{token,keywords,lex-error,lexer}.ts` + colocated `lexer.test.ts`.
   It's dialect-complete on the keyword/operator table (a lookup table costs nothing to fill in
   early) even though only a subset has a parser yet.
@@ -204,14 +205,41 @@ the relevant step above — that's the intended landing spot for each piece of r
   is in place for the exhaustiveness convention, ready for step 3's lowering to start using it.
 
 - Step 3 (lowering) — `src/ir/program.ts` defines `Step` (currently `Print`/`Let`/`Goto`/`NoOp`/`Halt`,
-  one per supported statement kind — deliberately *not* pre-designed for IF/FOR/GOSUB/WHILE the way
+  one per supported statement kind — deliberately _not_ pre-designed for IF/FOR/GOSUB/WHILE the way
   the AST/keyword tables were, since those need real runtime-stack semantics that aren't validated
   yet) and `LineIndex`/`LoweredProgram`. `src/ir/lower-statements.ts` lowers each supported
   statement 1:1 into a Step, with explicit throwing cases (backed by `assertNever`) for every other
   Statement kind as a defensive backstop. `src/ir/lowering.ts`'s `lower(program)` flattens all lines
   into one contiguous `Step[]` and builds `lineToStep`. Key finding baked into the design: `GotoStep`
-  carries the raw, *unresolved* BASIC line number — lowering never needs to solve forward references,
+  carries the raw, _unresolved_ BASIC line number — lowering never needs to solve forward references,
   because empty lines and jump targets both naturally resolve via `lineToStep` at emission time (or
   a `LINESTART`-style table in the emitted JS itself, per the plan's illustrative shape).
 
-Next: step 4, the emitter — `Step[] → JS source text` (the async dispatch-loop `run(rt)` function).
+- Step 4 (emitter) — `src/emitter/{mangle,emit-expressions,emit-print,emit-statements,emit-program,prelude}.ts`
+  turn a `LoweredProgram` into a self-contained JS ES module exporting `async function run(rt)`.
+  Key findings: (1) every switch case needs its own `{ }` block, since `let`/`const` declared
+  directly under a bare `case` in JS is scoped to the _whole_ switch, not just that case, and
+  would collide across the many `Print` cases a real program emits; (2) JS's `%` turned out to
+  already match GW-BASIC's documented `MOD` behavior exactly (both are truncating-division
+  remainder, sign-of-dividend) — corrected DIALECT.md, which had originally (incorrectly) assumed
+  a mismatch; (3) PRINT's number formatting/comma tab-zones needed a couple of small `__`-prefixed
+  helpers inlined via `prelude.ts`, with an honestly-documented simplification (tab-zone column
+  tracking resets every statement, not tracked across a whole program) flagged in DIALECT.md's
+  Open Decisions. Found and fixed a real step-2 parser bug while building this: `PRINT 1 2` (two
+  values with no separator) was silently accepted as two adjacent value segments instead of being
+  a parse error.
+- Step 5 (minimal runtime + CLI) — `src/runtime/interface.ts` (`BasicRuntime`), `src/runtime/node/node-runtime.ts`
+  (`NodeRuntime`), `tests/helpers/test-runtime.ts` (`TestRuntime`), `src/index.ts` (public `compile()`),
+  `src/util/load-js-module.ts` (executes emitted JS text via a `data:` URL dynamic `import()`, no
+  temp files needed), and `src/cli/{index,commands/run,commands/convert}.ts`. **First end-to-end
+  milestone reached**: `basic2js run <file.bas>` and `node dist/cli/index.js run <file.bas>` both
+  correctly compile and execute a real PRINT/LET/GOTO program. The real golden-test harness
+  (`tests/golden/golden.test.ts`) replaced its `it.todo` stub and now auto-discovers any
+  `programs/*/program.bas`; added `tests/golden/programs/goto-basics/` (LET/PRINT/arithmetic +
+  forward _and_ backward GOTO, verified against the actual compiler output rather than
+  hand-computed). Note: a _self-terminating_ GOTO-driven counting loop isn't achievable yet —
+  looping requires a conditional to escape, and `IF`/`THEN` doesn't exist until step 6 — so
+  `goto-basics` demonstrates backward-jump correctness via an unconditional jump straight into an
+  `END`, not a true bounded loop; a real counting-loop golden test should be added once step 6 lands.
+
+Next: step 6, `IF`/`THEN`/`ELSE` + full operator precedence (comparisons, `AND`/`OR`/`NOT`).

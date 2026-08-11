@@ -3,6 +3,6 @@
 //
 // TODO (build order step 17): props { error: BasicRuntimeError | Diagnostic[] | null }.
 
-import styles from './ErrorPanel.module.css';
+import styles from "./ErrorPanel.module.css";
 
 export {};

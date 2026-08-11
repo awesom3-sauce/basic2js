@@ -60,9 +60,17 @@ describe("parse — PRINT", () => {
   it("stops at a trailing comment with no separator required", () => {
     const statements = firstLineStatements("40 PRINT 1 'note");
     expect(statements).toEqual([
-      { kind: "PrintStmt", segments: [{ kind: "value", expr: { kind: "NumberLiteral", value: 1 } }] },
+      {
+        kind: "PrintStmt",
+        segments: [{ kind: "value", expr: { kind: "NumberLiteral", value: 1 } }],
+      },
       { kind: "RemStmt", text: "note" },
     ]);
+  });
+
+  it("rejects two values with no separator between them", () => {
+    expect(() => parseSource("50 PRINT 1 2")).toThrow(ParseError);
+    expect(() => parseSource("50 PRINT 1 2")).toThrow(/Expected ";" or ","/);
   });
 });
 

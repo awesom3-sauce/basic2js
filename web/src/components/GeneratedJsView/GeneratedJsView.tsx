@@ -3,6 +3,6 @@
 //
 // TODO (build order step 17): props { js: string }.
 
-import styles from './GeneratedJsView.module.css';
+import styles from "./GeneratedJsView.module.css";
 
 export {};

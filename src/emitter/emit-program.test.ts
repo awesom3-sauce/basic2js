@@ -1,0 +1,169 @@
+// Behavioral tests: compile a small BASIC snippet all the way to JS and
+// execute it against TestRuntime, asserting on captured output — per
+// CLAUDE.md's "How to add a new BASIC statement" testing convention.
+// Preferred over asserting on the emitted JS text directly, which would be
+// brittle (whitespace-sensitive) without checking anything more meaningful
+// than what these tests already verify by actually running the code.
+
+import { describe, expect, it } from "vitest";
+import { compile } from "../index.js";
+import { importModuleFromSource } from "../util/load-js-module.js";
+import { TestRuntime } from "../../tests/helpers/test-runtime.js";
+import type { BasicRuntime } from "../runtime/interface.js";
+
+async function runBasic(source: string, scriptedInput: string[] = []): Promise<TestRuntime> {
+  const { js } = compile(source);
+  const mod = await importModuleFromSource(js);
+  const run = mod.run as (rt: BasicRuntime) => Promise<void>;
+  const rt = new TestRuntime(scriptedInput);
+  await run(rt);
+  return rt;
+}
+
+describe("emit — PRINT", () => {
+  it("prints a string literal with a trailing newline", async () => {
+    const rt = await runBasic('10 PRINT "HELLO"');
+    expect(rt.output).toBe("HELLO\n");
+  });
+
+  it("formats non-negative numbers with a leading and trailing space", async () => {
+    const rt = await runBasic("10 PRINT 5");
+    expect(rt.output).toBe(" 5 \n");
+  });
+
+  it("formats negative numbers with just a trailing space", async () => {
+    const rt = await runBasic("10 PRINT -5");
+    expect(rt.output).toBe("-5 \n");
+  });
+
+  it("concatenates ;-separated values with no separator of its own", async () => {
+    const rt = await runBasic('10 PRINT "X="; 5');
+    expect(rt.output).toBe("X= 5 \n");
+  });
+
+  it("suppresses the trailing newline after a trailing separator", async () => {
+    const rt = await runBasic('10 PRINT "A";');
+    expect(rt.output).toBe("A");
+  });
+
+  it("pads ,-separated values to the next 14-column tab zone", async () => {
+    const rt = await runBasic('10 PRINT "AB",1');
+    // "AB" is 2 chars; the next zone is column 14, so 12 spaces of padding.
+    expect(rt.output).toBe("AB" + " ".repeat(12) + " 1 " + "\n");
+  });
+
+  it("prints a blank line for a bare PRINT", async () => {
+    const rt = await runBasic("10 PRINT");
+    expect(rt.output).toBe("\n");
+  });
+});
+
+describe("emit — LET / variables", () => {
+  it("assigns and reads back a variable", async () => {
+    const rt = await runBasic("10 LET A = 5\n20 PRINT A");
+    expect(rt.output).toBe(" 5 \n");
+  });
+
+  it("keeps variables with different type suffixes distinct", async () => {
+    const rt = await runBasic('10 A = 1\n20 A$ = "hi"\n30 PRINT A\n40 PRINT A$');
+    expect(rt.output).toBe(" 1 \nhi\n");
+  });
+
+  it("supports implicit assignment without LET", async () => {
+    const rt = await runBasic("10 A = 42\n20 PRINT A");
+    expect(rt.output).toBe(" 42 \n");
+  });
+});
+
+describe("emit — arithmetic expressions", () => {
+  it("gives * higher precedence than +", async () => {
+    const rt = await runBasic("10 PRINT 1 + 2 * 3");
+    expect(rt.output).toBe(" 7 \n");
+  });
+
+  it("respects parenthesized grouping", async () => {
+    const rt = await runBasic("10 PRINT (1 + 2) * 3");
+    expect(rt.output).toBe(" 9 \n");
+  });
+
+  it("makes ^ right-associative (2^3^2 = 2^(3^2) = 512)", async () => {
+    const rt = await runBasic("10 PRINT 2 ^ 3 ^ 2");
+    expect(rt.output).toBe(" 512 \n");
+  });
+
+  it("binds unary minus looser than ^ (-2^2 = -4)", async () => {
+    const rt = await runBasic("10 PRINT -2 ^ 2");
+    expect(rt.output).toBe("-4 \n");
+  });
+
+  it("binds unary minus tighter than * (-2*3 = -6)", async () => {
+    const rt = await runBasic("10 PRINT -2 * 3");
+    expect(rt.output).toBe("-6 \n");
+  });
+
+  it("evaluates integer division, truncating toward zero", async () => {
+    const rt = await runBasic("10 PRINT 7 \\ 2");
+    expect(rt.output).toBe(" 3 \n");
+  });
+
+  it("evaluates MOD with sign following the dividend", async () => {
+    const rt = await runBasic("10 PRINT 7 MOD 2");
+    expect(rt.output).toBe(" 1 \n");
+    const rtNeg = await runBasic("10 PRINT -7 MOD 2");
+    expect(rtNeg.output).toBe("-1 \n");
+  });
+
+  it("concatenates strings with +", async () => {
+    const rt = await runBasic('10 PRINT "foo" + "bar"');
+    expect(rt.output).toBe("foobar\n");
+  });
+});
+
+describe("emit — GOTO / dispatch loop", () => {
+  it("jumps forward, skipping intermediate statements", async () => {
+    const rt = await runBasic('10 GOTO 30\n20 PRINT "SKIPPED"\n30 PRINT "HERE"');
+    expect(rt.output).toBe("HERE\n");
+  });
+
+  it("jumps backward and then halts via END, without looping forever", async () => {
+    const rt = await runBasic(
+      [
+        "10 GOTO 40",
+        '20 PRINT "BACKWARD TARGET"',
+        "30 END",
+        '40 PRINT "FORWARD"',
+        "50 GOTO 20",
+      ].join("\n"),
+    );
+    expect(rt.output).toBe("FORWARD\nBACKWARD TARGET\n");
+  });
+
+  it("halts on END without executing anything after it", async () => {
+    const rt = await runBasic('10 PRINT "BEFORE"\n20 END\n30 PRINT "AFTER"');
+    expect(rt.output).toBe("BEFORE\n");
+  });
+
+  it("halts on STOP the same way as END", async () => {
+    const rt = await runBasic('10 PRINT "BEFORE"\n20 STOP\n30 PRINT "AFTER"');
+    expect(rt.output).toBe("BEFORE\n");
+  });
+
+  it("naturally halts by falling off the end of the program with no explicit END", async () => {
+    const rt = await runBasic('10 PRINT "ONLY LINE"');
+    expect(rt.output).toBe("ONLY LINE\n");
+  });
+});
+
+describe("emit — REM / comments", () => {
+  it("has no effect on program output", async () => {
+    const rt = await runBasic('10 REM does nothing\n20 PRINT "HI"\n30 X = 1 \'trailing note');
+    expect(rt.output).toBe("HI\n");
+  });
+});
+
+describe("emit — colon-separated statements", () => {
+  it("executes every statement on a line in order", async () => {
+    const rt = await runBasic("10 A = 1: B = 2: PRINT A + B");
+    expect(rt.output).toBe(" 3 \n");
+  });
+});

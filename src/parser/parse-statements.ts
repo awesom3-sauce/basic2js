@@ -9,7 +9,14 @@
 // ParseError rather than being silently mis-parsed; each lands in its own
 // build-order step (see CLAUDE.md).
 
-import type { GotoStmt, LetStmt, LValue, PrintSegment, PrintStmt, Statement } from "../ast/statements.js";
+import type {
+  GotoStmt,
+  LetStmt,
+  LValue,
+  PrintSegment,
+  PrintStmt,
+  Statement,
+} from "../ast/statements.js";
 import { parseExpression } from "./parse-expressions.js";
 import { splitSuffix } from "./identifier.js";
 import { numberValue, stringValue } from "./token-value.js";
@@ -22,7 +29,9 @@ import type { TokenCursor } from "./token-cursor.js";
  * BASIC), EOL, or EOF.
  */
 function isStatementEnd(cursor: TokenCursor): boolean {
-  return cursor.check("Colon") || cursor.check("Comment") || cursor.check("EOL") || cursor.check("EOF");
+  return (
+    cursor.check("Colon") || cursor.check("Comment") || cursor.check("EOL") || cursor.check("EOF")
+  );
 }
 
 export function parseStatement(cursor: TokenCursor): Statement {
@@ -70,14 +79,30 @@ export function parseStatement(cursor: TokenCursor): Statement {
 function parsePrintStmt(cursor: TokenCursor): PrintStmt {
   cursor.expect("Keyword", "PRINT");
   const segments: PrintSegment[] = [];
+  // Two "value" segments may never sit adjacent without a separator
+  // between them — `PRINT 1 2` is invalid syntax, not two implicitly
+  // adjacent values.
+  let atValueBoundary = false;
 
   while (!isStatementEnd(cursor)) {
     if (cursor.check("Operator", ";") || cursor.check("Operator", ",")) {
       const sep = cursor.advance().text as ";" | ",";
       segments.push({ kind: "sep", sep });
+      atValueBoundary = false;
       continue;
     }
+
+    if (atValueBoundary) {
+      const token = cursor.current();
+      throw new ParseError(
+        `Expected ";" or "," between PRINT values, found "${token.text}"`,
+        token.line,
+        token.col,
+      );
+    }
+
     segments.push({ kind: "value", expr: parseExpression(cursor) });
+    atValueBoundary = true;
   }
 
   return { kind: "PrintStmt", segments };

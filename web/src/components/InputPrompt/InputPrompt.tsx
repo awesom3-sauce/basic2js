@@ -4,6 +4,6 @@
 //
 // TODO (build order step 17): props { prompt: string; onSubmit(value: string): void }.
 
-import styles from './InputPrompt.module.css';
+import styles from "./InputPrompt.module.css";
 
 export {};

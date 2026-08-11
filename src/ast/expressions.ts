@@ -17,13 +17,7 @@
 import type { TypeSuffix } from "./types.js";
 
 export type Expression =
-  | NumberLiteral
-  | StringLiteral
-  | VariableRef
-  | ArrayRef
-  | UnaryExpr
-  | BinaryExpr
-  | CallExpr;
+  NumberLiteral | StringLiteral | VariableRef | ArrayRef | UnaryExpr | BinaryExpr | CallExpr;
 
 export interface NumberLiteral {
   readonly kind: "NumberLiteral";
@@ -77,18 +71,4 @@ export interface CallExpr {
 export type UnaryOp = "-" | "NOT";
 
 export type BinOp =
-  | "+"
-  | "-"
-  | "*"
-  | "/"
-  | "\\"
-  | "^"
-  | "MOD"
-  | "="
-  | "<>"
-  | "<"
-  | ">"
-  | "<="
-  | ">="
-  | "AND"
-  | "OR";
+  "+" | "-" | "*" | "/" | "\\" | "^" | "MOD" | "=" | "<>" | "<" | ">" | "<=" | ">=" | "AND" | "OR";

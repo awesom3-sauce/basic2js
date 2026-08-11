@@ -14,7 +14,11 @@ describe("lower — statement kinds", () => {
   it("lowers PRINT 1:1 into a Print step", () => {
     const { steps } = lowerSource('10 PRINT "HI"');
     expect(steps).toEqual([
-      { kind: "Print", line: 10, segments: [{ kind: "value", expr: { kind: "StringLiteral", value: "HI" } }] },
+      {
+        kind: "Print",
+        line: 10,
+        segments: [{ kind: "value", expr: { kind: "StringLiteral", value: "HI" } }],
+      },
     ]);
   });
 
@@ -78,7 +82,9 @@ describe("lower — Step[] flattening and line numbering", () => {
 
 describe("lower — lineToStep index", () => {
   it("maps each line number to the index of its first step", () => {
-    const { steps, lineToStep } = lowerSource("10 LET I = 1\n20 PRINT I\n30 LET I = I + 1\n40 GOTO 20");
+    const { steps, lineToStep } = lowerSource(
+      "10 LET I = 1\n20 PRINT I\n30 LET I = I + 1\n40 GOTO 20",
+    );
     expect(lineToStep.get(10)).toBe(0);
     expect(lineToStep.get(20)).toBe(1);
     expect(lineToStep.get(30)).toBe(2);

@@ -63,7 +63,9 @@ export interface PrintStmt {
   readonly segments: readonly PrintSegment[];
 }
 
-export type PrintSegment = { readonly kind: "value"; readonly expr: Expression } | { readonly kind: "sep"; readonly sep: ";" | "," };
+export type PrintSegment =
+  | { readonly kind: "value"; readonly expr: Expression }
+  | { readonly kind: "sep"; readonly sep: ";" | "," };
 
 // --- INPUT (step 9) ---
 
@@ -173,7 +175,8 @@ export interface DataStmt {
   readonly values: readonly DataValue[];
 }
 
-export type DataValue = { readonly t: "num"; readonly v: number } | { readonly t: "str"; readonly v: string };
+export type DataValue =
+  { readonly t: "num"; readonly v: number } | { readonly t: "str"; readonly v: string };
 
 export interface ReadStmt {
   readonly kind: "ReadStmt";

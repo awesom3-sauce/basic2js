@@ -4,6 +4,6 @@
 //
 // TODO (build order step 17/18): props { onSelect(source: string): void }.
 
-import styles from './ExamplesMenu.module.css';
+import styles from "./ExamplesMenu.module.css";
 
 export {};
