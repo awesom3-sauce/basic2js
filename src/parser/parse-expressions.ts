@@ -2,13 +2,18 @@
 // see precedence.ts for the binding-power table.
 //
 // Implemented: number/string literals, variable references (with suffix),
-// unary `-`/`NOT`, parenthesized grouping, and the full binary operator
-// set (arithmetic, comparisons, AND/OR — build order step 6). ArrayRef/
-// CallExpr parsing (an identifier immediately followed by `(`) is deferred
-// to steps 10/13/14 — for now an identifier is always parsed as a bare
-// VariableRef, so `A(1)` in an expression position parses `A` as a
-// VariableRef and then fails with a ParseError at whatever unexpected `(`
-// follows, rather than being silently misinterpreted.
+// array references (build order step 10), unary `-`/`NOT`, parenthesized
+// grouping, and the full binary operator set (arithmetic, comparisons,
+// AND/OR — build order step 6).
+//
+// An identifier immediately followed by `(` is always parsed as an
+// ArrayRef (never a CallExpr) — correct for now, since neither builtin
+// functions (step 14) nor DEF FN (step 13) exist yet to create ambiguity.
+// Once they land, resolving `name(args)` between "array access" / "DEF FN
+// call" / "builtin call" will need real disambiguation (e.g. a symbol
+// table of known builtin/DEF-FN names checked before falling back to
+// array access) — flagged here as a concrete TODO for those steps rather
+// than left implicit.
 
 import type { Expression } from "../ast/expressions.js";
 import { splitSuffix } from "./identifier.js";
@@ -63,6 +68,9 @@ function parsePrimary(cursor: TokenCursor): Expression {
   if (token.type === "Identifier") {
     cursor.advance();
     const { name, suffix } = splitSuffix(stringValue(token));
+    if (cursor.check("Operator", "(")) {
+      return { kind: "ArrayRef", name, suffix, indices: parseIndexList(cursor) };
+    }
     return { kind: "VariableRef", name, suffix };
   }
 
@@ -78,4 +86,19 @@ function parsePrimary(cursor: TokenCursor): Expression {
     token.line,
     token.col,
   );
+}
+
+/**
+ * `"(" expr[, expr...] ")"` — shared by ArrayRef expressions, array
+ * element l-values, and DIM declarations (see parse-statements.ts).
+ */
+export function parseIndexList(cursor: TokenCursor): Expression[] {
+  cursor.expect("Operator", "(");
+  const indices: Expression[] = [];
+  for (;;) {
+    indices.push(parseExpression(cursor));
+    if (!cursor.match("Operator", ",")) break;
+  }
+  cursor.expect("Operator", ")");
+  return indices;
 }

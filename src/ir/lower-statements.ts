@@ -8,16 +8,15 @@
 // single bare NextStep if no variables were given — build order step 7);
 // GosubStmt/ReturnStmt/OnJumpStmt each lower 1:1 into a single Step (build
 // order step 8); InputStmt lowers 1:1 into an InputStep (build order step
-// 9). Every other Statement kind is handled by an explicit case that
-// throws — the parser doesn't produce them yet (unsupported keywords
-// raise a ParseError before lowering ever runs), so these branches exist
-// purely as a defensive backstop and, together with the final
-// `assertNever`, keep this switch exhaustive: adding a new Statement kind
-// without updating this file becomes a compile-time TS error. Each one
-// gets a real implementation in its own build-order step — see the
-// per-construct rules in CLAUDE.md's "dispatch-loop / virtual-PC emitter"
-// section:
-// - DimStmt (step 10).
+// 9); DimStmt lowers 1:1 into a DimStep (build order step 10). Every other
+// Statement kind is handled by an explicit case that throws — the parser
+// doesn't produce them yet (unsupported keywords raise a ParseError
+// before lowering ever runs), so these branches exist purely as a
+// defensive backstop and, together with the final `assertNever`, keep
+// this switch exhaustive: adding a new Statement kind without updating
+// this file becomes a compile-time TS error. Each one gets a real
+// implementation in its own build-order step — see the per-construct
+// rules in CLAUDE.md's "dispatch-loop / virtual-PC emitter" section:
 // - DataStmt/ReadStmt/RestoreStmt (step 11): DATA is collected in a
 //   separate pre-pass over the whole Program (see lowering.ts) and is not
 //   itself lowered to a Step (it's non-executable).
@@ -99,9 +98,11 @@ export function lowerStatement(statement: Statement, line: number, ctx: Lowering
         },
       ];
 
+    case "DimStmt":
+      return [{ kind: "Dim", line, declarations: statement.declarations }];
+
     case "WhileStmt":
     case "WendStmt":
-    case "DimStmt":
     case "DataStmt":
     case "ReadStmt":
     case "RestoreStmt":

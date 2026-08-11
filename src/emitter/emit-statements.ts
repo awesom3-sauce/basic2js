@@ -11,11 +11,12 @@
 //
 // Implemented: Print, Let, Goto, NoOp, Halt (build order step 4), If
 // (build order step 6), For/Next (build order step 7),
-// Gosub/Return/OnJump (build order step 8), and Input (build order step
-// 9) — exactly the Step kinds lowering currently produces (see
-// src/ir/program.ts). Input is the only Step kind whose case body
-// contains an `await` beyond the print calls emitted here (`rt.print` is
-// always awaited too, for host symmetry — see src/runtime/interface.ts).
+// Gosub/Return/OnJump (build order step 8), Input (build order step 9),
+// and Dim (build order step 10) — exactly the Step kinds lowering
+// currently produces (see src/ir/program.ts). Input is the only Step kind
+// whose case body contains an `await` beyond the print calls emitted here
+// (`rt.print` is always awaited too, for host symmetry — see
+// src/runtime/interface.ts).
 
 import type { Step } from "../ir/program.js";
 import { emitExpression } from "./emit-expressions.js";
@@ -40,8 +41,14 @@ function emitStepBody(step: Step, stepIndex: number): string {
       return `${emitPrintCall(step.segments)} pc = ${stepIndex + 1}; break;`;
 
     case "Let": {
-      const target = `V[${JSON.stringify(varKey(step.target.name, step.target.suffix))}]`;
-      return `${target} = ${emitExpression(step.value)}; pc = ${stepIndex + 1}; break;`;
+      const key = JSON.stringify(varKey(step.target.name, step.target.suffix));
+      const value = emitExpression(step.value);
+      if (step.target.kind === "ArrayElement") {
+        const indices = `[${step.target.indices.map(emitExpression).join(", ")}]`;
+        const isString = step.target.suffix === "$";
+        return `__arrSet(ARR, ${key}, ${indices}, ${value}, ${isString}); pc = ${stepIndex + 1}; break;`;
+      }
+      return `V[${key}] = ${value}; pc = ${stepIndex + 1}; break;`;
     }
 
     case "Goto":
@@ -101,6 +108,18 @@ function emitStepBody(step: Step, stepIndex: number): string {
 
     case "Input":
       return emitInputCall(step, stepIndex);
+
+    case "Dim": {
+      const allocations = step.declarations
+        .map((decl) => {
+          const key = JSON.stringify(varKey(decl.name, decl.suffix));
+          const dims = `[${decl.dimensions.map(emitExpression).join(", ")}]`;
+          const isString = decl.suffix === "$";
+          return `ARR[${key}] = __arrAlloc(${dims}, ${isString});`;
+        })
+        .join(" ");
+      return `${allocations} pc = ${stepIndex + 1}; break;`;
+    }
 
     case "NoOp":
       return `pc = ${stepIndex + 1}; break;`;

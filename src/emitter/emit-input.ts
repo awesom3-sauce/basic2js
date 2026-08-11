@@ -1,6 +1,7 @@
 // INPUT emission: builds the JS statements that suspend for user input via
 // `await rt.input(...)`, split the response on commas, and assign each
-// (coerced) part to its target variable.
+// (coerced) part to its target variable or array element (build order
+// step 10).
 //
 // Known simplification (deferred to build order step 15's full
 // type-suffix enforcement): numeric coercion here is a bare `Number(...)`
@@ -9,6 +10,7 @@
 // input behavior.
 
 import type { InputStep } from "../ir/program.js";
+import { emitExpression } from "./emit-expressions.js";
 import { varKey } from "./mangle.js";
 
 export function emitInputCall(step: InputStep, stepIndex: number): string {
@@ -16,14 +18,14 @@ export function emitInputCall(step: InputStep, stepIndex: number): string {
 
   const assignments = step.targets
     .map((target, index) => {
-      if (target.kind !== "Variable") {
-        throw new Error(
-          "Internal error: emitting INPUT into an array element is not implemented yet (build order step 10)",
-        );
-      }
       const key = JSON.stringify(varKey(target.name, target.suffix));
       const isString = target.suffix === "$";
-      return `V[${key}] = __inputCoerce(__parts[${index}] ?? "", ${isString});`;
+      const value = `__inputCoerce(__parts[${index}] ?? "", ${isString})`;
+      if (target.kind === "ArrayElement") {
+        const indices = `[${target.indices.map(emitExpression).join(", ")}]`;
+        return `__arrSet(ARR, ${key}, ${indices}, ${value}, ${isString});`;
+      }
+      return `V[${key}] = ${value};`;
     })
     .join(" ");
 

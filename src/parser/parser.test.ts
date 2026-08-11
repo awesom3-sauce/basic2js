@@ -541,3 +541,79 @@ describe("parse — INPUT", () => {
     });
   });
 });
+
+describe("parse — DIM / arrays", () => {
+  it("parses a single-dimension DIM declaration", () => {
+    expect(firstStatement("10 DIM A(10)")).toEqual({
+      kind: "DimStmt",
+      declarations: [{ name: "a", suffix: "", dimensions: [{ kind: "NumberLiteral", value: 10 }] }],
+    });
+  });
+
+  it("parses a two-dimension DIM declaration", () => {
+    expect(firstStatement("10 DIM B(2, 3)")).toEqual({
+      kind: "DimStmt",
+      declarations: [
+        {
+          name: "b",
+          suffix: "",
+          dimensions: [
+            { kind: "NumberLiteral", value: 2 },
+            { kind: "NumberLiteral", value: 3 },
+          ],
+        },
+      ],
+    });
+  });
+
+  it("parses multiple comma-separated DIM declarations", () => {
+    expect(firstStatement("10 DIM A(5), B$(10)")).toEqual({
+      kind: "DimStmt",
+      declarations: [
+        { name: "a", suffix: "", dimensions: [{ kind: "NumberLiteral", value: 5 }] },
+        { name: "b", suffix: "$", dimensions: [{ kind: "NumberLiteral", value: 10 }] },
+      ],
+    });
+  });
+
+  it("parses an array element as an assignment target", () => {
+    const stmt = firstStatement("10 A(1) = 5") as LetStmt;
+    expect(stmt.target).toEqual({
+      kind: "ArrayElement",
+      name: "a",
+      suffix: "",
+      indices: [{ kind: "NumberLiteral", value: 1 }],
+    });
+  });
+
+  it("parses an array element as an expression", () => {
+    expect(letValue("10 LET X = A(1) + A(2)")).toEqual({
+      kind: "BinaryExpr",
+      op: "+",
+      left: {
+        kind: "ArrayRef",
+        name: "a",
+        suffix: "",
+        indices: [{ kind: "NumberLiteral", value: 1 }],
+      },
+      right: {
+        kind: "ArrayRef",
+        name: "a",
+        suffix: "",
+        indices: [{ kind: "NumberLiteral", value: 2 }],
+      },
+    });
+  });
+
+  it("parses a two-dimension array reference", () => {
+    expect(letValue("10 LET X = B(I, J)")).toEqual({
+      kind: "ArrayRef",
+      name: "b",
+      suffix: "",
+      indices: [
+        { kind: "VariableRef", name: "i", suffix: "" },
+        { kind: "VariableRef", name: "j", suffix: "" },
+      ],
+    });
+  });
+});

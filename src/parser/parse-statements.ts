@@ -4,14 +4,16 @@
 // Implemented: PRINT, LET (explicit `LET` and implicit assignment), GOTO,
 // REM (via the lexer's Comment token), END, STOP (build order step 2),
 // IF/THEN/ELSE (build order step 6), FOR/NEXT (build order step 7),
-// GOSUB/RETURN/ON...GOTO/ON...GOSUB (build order step 8), and INPUT
-// (build order step 9). Every other keyword the lexer recognizes (WHILE,
-// DIM, DATA, READ, RESTORE, DEF — see src/lexer/keywords.ts) currently
-// raises a clear "not implemented yet" ParseError rather than being
-// silently mis-parsed; each lands in its own build-order step (see
-// CLAUDE.md).
+// GOSUB/RETURN/ON...GOTO/ON...GOSUB (build order step 8), INPUT (build
+// order step 9), and DIM/array l-values (build order step 10). Every
+// other keyword the lexer recognizes (WHILE, DATA, READ, RESTORE, DEF —
+// see src/lexer/keywords.ts) currently raises a clear "not implemented
+// yet" ParseError rather than being silently mis-parsed; each lands in
+// its own build-order step (see CLAUDE.md).
 
 import type {
+  DimDeclaration,
+  DimStmt,
   ForStmt,
   GosubStmt,
   GotoStmt,
@@ -26,7 +28,7 @@ import type {
   PrintStmt,
   Statement,
 } from "../ast/statements.js";
-import { parseExpression } from "./parse-expressions.js";
+import { parseExpression, parseIndexList } from "./parse-expressions.js";
 import { splitSuffix } from "./identifier.js";
 import { numberValue, stringValue } from "./token-value.js";
 import { ParseError } from "./errors.js";
@@ -84,6 +86,8 @@ export function parseStatement(cursor: TokenCursor): Statement {
         return parseOnJumpStmt(cursor);
       case "INPUT":
         return parseInputStmt(cursor);
+      case "DIM":
+        return parseDimStmt(cursor);
       case "END":
         cursor.advance();
         return { kind: "EndStmt" };
@@ -147,14 +151,15 @@ function parseLetStmt(cursor: TokenCursor, options: { explicit: boolean }): LetS
 }
 
 /**
- * Step 2 scope: only bare variable targets (`A`, `A%`, ...). An identifier
- * immediately followed by `(` (an array element target — step 10) isn't
- * recognized here; the leftover `(` will fail the following `expect("=")`
- * with a reasonably clear parse error until array support lands.
+ * A bare variable (`A`, `A%`, ...) or, if immediately followed by `(`, an
+ * array element (`A(I)`, `A(I, J)`, ...).
  */
 function parseLValue(cursor: TokenCursor): LValue {
   const token = cursor.expect("Identifier");
   const { name, suffix } = splitSuffix(stringValue(token));
+  if (cursor.check("Operator", "(")) {
+    return { kind: "ArrayElement", name, suffix, indices: parseIndexList(cursor) };
+  }
   return { kind: "Variable", name, suffix };
 }
 
@@ -287,6 +292,25 @@ function parseInputStmt(cursor: TokenCursor): InputStmt {
   }
 
   return { kind: "InputStmt", prompt, appendQuestionMark, targets };
+}
+
+/**
+ * `DIM var(size[, size2]) [, var2(...)...]`. An identifier's dimension
+ * count here isn't restricted to 1 or 2 by the parser — DIALECT.md's "1D
+ * and 2D only" is a documented v1 scope decision enforced (if at all) at
+ * the runtime array-allocation helper, not a parse-time restriction.
+ */
+function parseDimStmt(cursor: TokenCursor): DimStmt {
+  cursor.expect("Keyword", "DIM");
+  const declarations: DimDeclaration[] = [];
+  for (;;) {
+    const token = cursor.expect("Identifier");
+    const { name, suffix } = splitSuffix(stringValue(token));
+    const dimensions = parseIndexList(cursor);
+    declarations.push({ name, suffix, dimensions });
+    if (!cursor.match("Operator", ",")) break;
+  }
+  return { kind: "DimStmt", declarations };
 }
 
 function parseLineNumberTarget(cursor: TokenCursor, context: string): number {

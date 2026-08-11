@@ -1,14 +1,14 @@
 // Expression -> JS source-text emission.
 //
-// Implemented: NumberLiteral, StringLiteral, VariableRef, unary "-"/"NOT",
-// and the full BinOp set — arithmetic (+ - * / \ ^ MOD, build order step
-// 4) plus comparisons and AND/OR (build order step 6) — exactly the
-// Expression shapes the parser currently produces (see
-// src/parser/parse-expressions.ts). ArrayRef/CallExpr are defined in the
-// AST already but have an explicit throwing case here (backed by a final
-// `assertNever`), same defensive-backstop pattern as
-// src/ir/lower-statements.ts — they land in their own build-order steps
-// (10, 13/14).
+// Implemented: NumberLiteral, StringLiteral, VariableRef, ArrayRef (build
+// order step 10), unary "-"/"NOT", and the full BinOp set — arithmetic
+// (+ - * / \ ^ MOD, build order step 4) plus comparisons and AND/OR
+// (build order step 6) — exactly the Expression shapes the parser
+// currently produces (see src/parser/parse-expressions.ts). CallExpr is
+// defined in the AST already but has an explicit throwing case here
+// (backed by a final `assertNever`), same defensive-backstop pattern as
+// src/ir/lower-statements.ts — it lands in its own build-order steps
+// (13/14).
 //
 // Every composite sub-expression (UnaryExpr, BinaryExpr) is emitted fully
 // parenthesized, so nesting composes safely regardless of JS's own
@@ -38,10 +38,12 @@ export function emitExpression(expr: Expression): string {
     case "BinaryExpr":
       return emitBinaryExpr(expr.op, expr.left, expr.right);
 
-    case "ArrayRef":
-      throw new Error(
-        'Internal error: emitting "ArrayRef" is not implemented yet (build order step 10)',
-      );
+    case "ArrayRef": {
+      const key = JSON.stringify(varKey(expr.name, expr.suffix));
+      const indices = `[${expr.indices.map(emitExpression).join(", ")}]`;
+      const isString = expr.suffix === "$";
+      return `__arrGet(ARR, ${key}, ${indices}, ${isString})`;
+    }
 
     case "CallExpr":
       throw new Error(

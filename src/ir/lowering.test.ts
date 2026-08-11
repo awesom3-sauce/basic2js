@@ -298,3 +298,35 @@ describe("lower — INPUT", () => {
     ]);
   });
 });
+
+describe("lower — DIM / arrays", () => {
+  it("lowers DIM 1:1 into a Dim step", () => {
+    const { steps } = lowerSource("10 DIM A(10)");
+    expect(steps).toEqual([
+      {
+        kind: "Dim",
+        line: 10,
+        declarations: [
+          { name: "a", suffix: "", dimensions: [{ kind: "NumberLiteral", value: 10 }] },
+        ],
+      },
+    ]);
+  });
+
+  it("lowers an array-element LET target through unchanged", () => {
+    const { steps } = lowerSource("10 A(1) = 5");
+    expect(steps).toEqual([
+      {
+        kind: "Let",
+        line: 10,
+        target: {
+          kind: "ArrayElement",
+          name: "a",
+          suffix: "",
+          indices: [{ kind: "NumberLiteral", value: 1 }],
+        },
+        value: { kind: "NumberLiteral", value: 5 },
+      },
+    ]);
+  });
+});

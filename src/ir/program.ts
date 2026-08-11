@@ -11,7 +11,7 @@
 // deliberately NOT pre-designed for those yet (see lower-statements.ts).
 
 import type { Expression } from "../ast/expressions.js";
-import type { LValue, PrintSegment } from "../ast/statements.js";
+import type { DimDeclaration, LValue, PrintSegment } from "../ast/statements.js";
 import type { TypeSuffix } from "../ast/types.js";
 
 export type Step =
@@ -25,6 +25,7 @@ export type Step =
   | ReturnStep
   | OnJumpStep
   | InputStep
+  | DimStep
   | NoOpStep
   | HaltStep;
 
@@ -159,6 +160,18 @@ export interface InputStep extends StepBase {
   readonly prompt?: string;
   readonly appendQuestionMark: boolean;
   readonly targets: readonly LValue[];
+}
+
+/**
+ * `DIM var(size[, size2]) [, ...]`: (re)allocates each declared array —
+ * see emit-statements.ts / prelude.ts's `__arrAlloc`. An array referenced
+ * without ever being DIM'd is lazily allocated at default size 10 per
+ * dimension on first access instead (classic BASIC behavior — see
+ * `__arrEnsure`), so DimStep only ever runs for *explicit* DIMs.
+ */
+export interface DimStep extends StepBase {
+  readonly kind: "Dim";
+  readonly declarations: readonly DimDeclaration[];
 }
 
 /** REM/`'` comments: no runtime effect, just falls through to the next step. */

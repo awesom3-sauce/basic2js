@@ -65,10 +65,18 @@ build order progresses. Currently everything is `[ ]` — this is the target spe
   `RETURN` still correctly raises `RETURN WITHOUT GOSUB` rather than jumping somewhere bogus).
 - `WHILE cond` / `WEND` — **statically, lexically nested** (unlike `FOR`/`NEXT`), matched at
   compile time.
-- `DIM var(size[, size2]) [, var2(...)...]` — 1D and 2D arrays only in v1. `DIM A(N)` allocates
-  indices `0..N` (length `N+1`). An array used without an explicit `DIM` defaults to size 10
-  (indices `0..10`, classic BASIC behavior). Out-of-bounds access is a `SUBSCRIPT OUT OF RANGE`
-  runtime error.
+- `DIM var(size[, size2]) [, var2(...)...]` — 1D and 2D arrays only in v1 (the parser doesn't
+  enforce this; it's a runtime-representation choice, see Open Decisions). `DIM A(N)` allocates
+  indices `0..N` (length `N+1`). An array used without an explicit `DIM` defaults to size 10 per
+  dimension (indices `0..10`, classic BASIC behavior), allocated lazily on first access. Arrays and
+  scalars occupy separate namespaces — `A` and `A(0)` coexist without conflict, since scalars live
+  in `V` and arrays in `ARR`. Out-of-bounds (including negative) indices, and accessing an array
+  with the wrong number of dimensions from how it was DIM'd/first-used, are both a
+  `SUBSCRIPT OUT OF RANGE` runtime error. Re-`DIM`ing an already-allocated array silently resets it
+  rather than raising GW-BASIC's `Redimensioned array` error (see Open Decisions).
+  `identifier(args)` in an expression is always parsed as an array reference (never a builtin/DEF FN
+  call) — correct for now since neither exists yet; steps 13/14 will need to add real
+  disambiguation.
 - `DATA value, value, ...` — non-executable; all `DATA` statements in the program are collected
   (in line order) into one flat pool before execution begins.
 - `READ var[, var...]` — advances a shared pointer into the `DATA` pool, coercing each value to
@@ -170,3 +178,8 @@ revisited explicitly** — if you change one, update this section and any golden
 - **Leading `INPUT;` form**: not supported (out of scope) — this is the syntax for suppressing the
   newline echoed after the user's response, a formatting nuance distinct from the prompt's own
   `;`/`,` separator, which _is_ fully supported.
+- **Array runtime representation**: every array (1D or 2D) is one flat JS array (`{ dims, data }`)
+  with a manually computed linear index, not nested arrays — keeps 1D/2D (and, though undocumented
+  as supported, N-D) index computation uniform. An implementation detail, not user-visible.
+- **Re-`DIM`ing an array**: silently reallocates (resets) it rather than raising GW-BASIC's
+  `Redimensioned array` error. Revisit alongside step 16's error-taxonomy polish if it matters.

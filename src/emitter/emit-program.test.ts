@@ -479,3 +479,65 @@ describe("emit — INPUT", () => {
     expect(rt.errors).toHaveLength(0);
   });
 });
+
+describe("emit — DIM / arrays", () => {
+  it("stores and reads back 1D array elements", async () => {
+    const rt = await runBasic("10 DIM A(5)\n20 A(0) = 10\n30 A(5) = 50\n40 PRINT A(0); A(5)");
+    expect(rt.output).toBe(" 10  50 \n");
+  });
+
+  it("lazily allocates an undeclared array at default size 10 per dimension", async () => {
+    const rt = await runBasic("10 A(3) = 99\n20 PRINT A(3)");
+    expect(rt.output).toBe(" 99 \n");
+  });
+
+  it("supports 2D arrays with independent row/column indices", async () => {
+    const rt = await runBasic(
+      [
+        "10 DIM B(2, 2)",
+        "20 FOR I = 0 TO 2",
+        "30 FOR J = 0 TO 2",
+        "40 B(I, J) = I * 10 + J",
+        "50 NEXT J",
+        "60 NEXT I",
+        "70 PRINT B(1, 2)",
+      ].join("\n"),
+    );
+    expect(rt.output).toBe(" 12 \n");
+  });
+
+  it("supports string arrays, defaulting elements to empty string", async () => {
+    const rt = await runBasic(
+      '10 DIM N$(2)\n20 PRINT "["; N$(0); "]"\n30 N$(0) = "Alice"\n40 PRINT N$(0)',
+    );
+    expect(rt.output).toBe("[]\nAlice\n");
+  });
+
+  it("raises SUBSCRIPT OUT OF RANGE for an out-of-bounds index", async () => {
+    const rt = await runBasic("10 DIM A(3)\n20 A(10) = 1");
+    expect(rt.output).toBe("");
+    expect(rt.errors).toHaveLength(1);
+    expect(rt.errors[0]?.message).toMatch(/SUBSCRIPT OUT OF RANGE/);
+  });
+
+  it("raises SUBSCRIPT OUT OF RANGE for a negative index", async () => {
+    const rt = await runBasic("10 DIM A(3)\n20 PRINT A(-1)");
+    expect(rt.errors).toHaveLength(1);
+    expect(rt.errors[0]?.message).toMatch(/SUBSCRIPT OUT OF RANGE/);
+  });
+
+  it("keeps a scalar and an array of the same name in separate namespaces", async () => {
+    const rt = await runBasic("10 A = 5\n20 DIM A(3)\n30 A(0) = 99\n40 PRINT A; A(0)");
+    expect(rt.output).toBe(" 5  99 \n");
+  });
+
+  it("supports array elements inside arithmetic expressions", async () => {
+    const rt = await runBasic("10 DIM A(3)\n20 A(0) = 5\n30 A(1) = 10\n40 PRINT A(0) + A(1)");
+    expect(rt.output).toBe(" 15 \n");
+  });
+
+  it("supports INPUT directly into an array element", async () => {
+    const rt = await runBasic("10 DIM A(3)\n20 INPUT A(0)\n30 PRINT A(0) * 2", ["21"]);
+    expect(rt.output).toBe("?  42 \n");
+  });
+});

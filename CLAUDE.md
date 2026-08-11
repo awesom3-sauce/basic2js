@@ -299,4 +299,18 @@ GOSUB`) before formal tests were written, same workflow as step 7.
   `readline.Interface` via its async iterator instead, which reads buffered lines correctly
   regardless of chunking. `tests/golden/programs/temp-converter/` filled in (was a placeholder).
 
-Next: step 10, `DIM` + array l-values/bounds.
+- Step 10 (`DIM` + array l-values/bounds) — arrays are represented at runtime as one flat
+  `{ dims, data }` object per array (a manually computed linear index), not nested arrays, so 1D/2D
+  access share the same indexing helper (`__arrIndex`) regardless of dimension count. An array
+  that's never explicitly `DIM`'d is lazily allocated at size 10 per dimension on first access
+  (`__arrEnsure`), matching classic BASIC. `identifier(args)` in expression position is now always
+  parsed as `ArrayRef` (previously it fell through to a "leftover `(`" parse error) — correct for
+  now since builtins (step 14) and `DEF FN` (step 13) don't exist yet to create ambiguity; flagged
+  with an explicit TODO for real disambiguation once they land. `LetStep`'s emission had to branch
+  on `target.kind` for the first time (`V[...] = ...` vs. `__arrSet(...)`) since `LValue` has always
+  allowed `ArrayElement`, even though nothing produced one until this step — a reminder that a type
+  allowing something and the code handling it correctly are two different guarantees.
+  `tests/golden/programs/bubble-sort/` filled in (was a placeholder), output cross-checked against
+  Python's `sorted()`.
+
+Next: step 11, `DATA`/`READ`/`RESTORE`.
