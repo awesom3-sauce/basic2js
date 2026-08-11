@@ -541,3 +541,63 @@ describe("emit — DIM / arrays", () => {
     expect(rt.output).toBe("?  42 \n");
   });
 });
+
+describe("emit — DATA/READ/RESTORE", () => {
+  it("reads numeric DATA values in order", async () => {
+    const rt = await runBasic("10 DATA 1, 2, 3\n20 READ A, B, C\n30 PRINT A + B + C");
+    expect(rt.output).toBe(" 6 \n");
+  });
+
+  it("reads mixed string and negative-number DATA values", async () => {
+    const rt = await runBasic('10 DATA "Alice", -5, "Bob"\n20 READ N$, X, M$\n30 PRINT N$; X; M$');
+    expect(rt.output).toBe("Alice-5 Bob\n");
+  });
+
+  it("supports READ inside a loop", async () => {
+    const rt = await runBasic(
+      "10 DATA 10, 20, 30, 40\n20 FOR I = 1 TO 4\n30 READ X\n40 PRINT X\n50 NEXT I",
+    );
+    expect(rt.output).toBe(" 10 \n 20 \n 30 \n 40 \n");
+  });
+
+  it("collects DATA from multiple lines into one pool regardless of interleaved statements", async () => {
+    const rt = await runBasic(
+      '10 DATA 1\n20 PRINT "between"\n30 DATA 2, 3\n40 READ A, B, C\n50 PRINT A; B; C',
+    );
+    expect(rt.output).toBe("between\n 1  2  3 \n");
+  });
+
+  it("supports READ into an array element", async () => {
+    const rt = await runBasic(
+      "10 DIM A(3)\n20 DATA 5, 10, 15\n30 FOR I = 0 TO 2\n40 READ A(I)\n50 NEXT I\n60 PRINT A(0); A(1); A(2)",
+    );
+    expect(rt.output).toBe(" 5  10  15 \n");
+  });
+
+  it("raises OUT OF DATA when reading past the end of the pool", async () => {
+    const rt = await runBasic("10 DATA 1\n20 READ A, B");
+    expect(rt.output).toBe("");
+    expect(rt.errors).toHaveLength(1);
+    expect(rt.errors[0]?.message).toMatch(/OUT OF DATA/);
+  });
+
+  it("bare RESTORE resets the pointer to the start of the pool", async () => {
+    const rt = await runBasic(
+      "10 DATA 1, 2\n20 READ A, B\n30 RESTORE\n40 READ C, D\n50 PRINT A; B; C; D",
+    );
+    expect(rt.output).toBe(" 1  2  1  2 \n");
+  });
+
+  it("RESTORE <line> resets the pointer to that line's first DATA value", async () => {
+    const rt = await runBasic(
+      "10 DATA 1, 2\n20 DATA 3, 4\n30 READ A, B, C, D\n40 RESTORE 20\n50 READ E, F\n60 PRINT A;B;C;D;E;F",
+    );
+    expect(rt.output).toBe(" 1  2  3  4  3  4 \n");
+  });
+
+  it("raises a clear error for RESTORE targeting a line with no DATA of its own", async () => {
+    const rt = await runBasic("10 DATA 1\n20 PRINT 2\n30 RESTORE 20");
+    expect(rt.errors).toHaveLength(1);
+    expect(rt.errors[0]?.message).toMatch(/RESTORE: no DATA at line 20/);
+  });
+});

@@ -313,4 +313,27 @@ GOSUB`) before formal tests were written, same workflow as step 7.
   `tests/golden/programs/bubble-sort/` filled in (was a placeholder), output cross-checked against
   Python's `sorted()`.
 
-Next: step 11, `DATA`/`READ`/`RESTORE`.
+- Step 11 (`DATA`/`READ`/`RESTORE`) — the pre-pass (`lowering.ts`'s `collectData`) recurses into
+  `IfStmt` branches, not just each line's top-level statements, since a `DATA` nested inside a
+  `THEN`/`ELSE` clause is unusual but grammatically legal. `DataStmt` lowers to zero Steps (it's
+  non-executable); `DATA`/`DATA_LINE_STARTS` are emitted as module-level `const`s alongside
+  `LINESTART` (purely derived from the source program, identical across every `run()` call, unlike
+  the per-invocation `V`/`ARR`/`forStack`/`gosubStack`), so `dataPtr++` inside a `Read` case body
+  needs no parameter-passing — direct closure/module-scope access, same reasoning already proven
+  for `LINESTART`. `__readNext(dataPtr++)`'s post-increment argument does the bounds-check-then-
+  advance in one expression, no separate increment statement. Scoped `DATA` values down to numbers
+  and quoted strings only (documented as an Open Decision) rather than also supporting real BASIC's
+  unquoted bare-word data, since the lexer already lowercases identifier-shaped tokens at tokenize
+  time with no way to know a DATA value shouldn't be case-normalized.
+
+  **Real bug found while writing the `prime-sieve` golden program** (not a step-11 bug, but only
+  surfaced once DATA/READ's neighboring golden-program work prompted filling in the array-based
+  goldens deferred from step 10): `FOR J = I*I TO N STEP I` inside a sieve, when `I*I` already
+  exceeds `N`, still runs its body once — because FOR doesn't pre-test (see step 7's finding) — and
+  `J = I*I` can be out of the DIM'd array's bounds, raising `SUBSCRIPT OUT OF RANGE`. Fixed by
+  guarding with `IF I*I > N THEN <skip>` before entering the inner loop, a real pattern classic
+  BASIC programs need for exactly this reason. `tests/golden/programs/{data-read-demo,prime-sieve}/`
+  both filled in (were placeholders) — `bubble-sort`/`fizzbuzz`/`temp-converter` had already
+  unblocked the array/FOR-based ones early, so only `guess-number` (needs `RND`, step 14) remains.
+
+Next: step 12, `WHILE`/`WEND`.

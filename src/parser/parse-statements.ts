@@ -5,13 +5,15 @@
 // REM (via the lexer's Comment token), END, STOP (build order step 2),
 // IF/THEN/ELSE (build order step 6), FOR/NEXT (build order step 7),
 // GOSUB/RETURN/ON...GOTO/ON...GOSUB (build order step 8), INPUT (build
-// order step 9), and DIM/array l-values (build order step 10). Every
-// other keyword the lexer recognizes (WHILE, DATA, READ, RESTORE, DEF —
-// see src/lexer/keywords.ts) currently raises a clear "not implemented
-// yet" ParseError rather than being silently mis-parsed; each lands in
-// its own build-order step (see CLAUDE.md).
+// order step 9), DIM/array l-values (build order step 10), and
+// DATA/READ/RESTORE (build order step 11). Every other keyword the lexer
+// recognizes (WHILE, DEF — see src/lexer/keywords.ts) currently raises a
+// clear "not implemented yet" ParseError rather than being silently
+// mis-parsed; each lands in its own build-order step (see CLAUDE.md).
 
 import type {
+  DataStmt,
+  DataValue,
   DimDeclaration,
   DimStmt,
   ForStmt,
@@ -26,6 +28,8 @@ import type {
   OnJumpStmt,
   PrintSegment,
   PrintStmt,
+  ReadStmt,
+  RestoreStmt,
   Statement,
 } from "../ast/statements.js";
 import { parseExpression, parseIndexList } from "./parse-expressions.js";
@@ -88,6 +92,12 @@ export function parseStatement(cursor: TokenCursor): Statement {
         return parseInputStmt(cursor);
       case "DIM":
         return parseDimStmt(cursor);
+      case "DATA":
+        return parseDataStmt(cursor);
+      case "READ":
+        return parseReadStmt(cursor);
+      case "RESTORE":
+        return parseRestoreStmt(cursor);
       case "END":
         cursor.advance();
         return { kind: "EndStmt" };
@@ -311,6 +321,60 @@ function parseDimStmt(cursor: TokenCursor): DimStmt {
     if (!cursor.match("Operator", ",")) break;
   }
   return { kind: "DimStmt", declarations };
+}
+
+/**
+ * `DATA value, value, ...`. Scope decision (see DIALECT.md): only
+ * (optionally negative) numeric literals and *quoted* string literals are
+ * supported — real BASIC also allows unquoted bare-word string data
+ * (`DATA JOHN, 25`), but our lexer already normalizes identifier-shaped
+ * tokens to lowercase (it doesn't know, at lex time, that a DATA value
+ * isn't meant to be case-insensitive), which would silently corrupt
+ * unquoted string data. Quoted strings sidestep that entirely.
+ */
+function parseDataStmt(cursor: TokenCursor): DataStmt {
+  cursor.expect("Keyword", "DATA");
+  const values: DataValue[] = [];
+  for (;;) {
+    values.push(parseDataValue(cursor));
+    if (!cursor.match("Operator", ",")) break;
+  }
+  return { kind: "DataStmt", values };
+}
+
+function parseDataValue(cursor: TokenCursor): DataValue {
+  const negative = cursor.match("Operator", "-");
+
+  if (cursor.check("Number")) {
+    const n = numberValue(cursor.advance());
+    return { t: "num", v: negative ? -n : n };
+  }
+  if (!negative && cursor.check("String")) {
+    return { t: "str", v: stringValue(cursor.advance()) };
+  }
+
+  const token = cursor.current();
+  throw new ParseError(
+    `Expected a DATA value (a number or a quoted string), found "${token.text}"`,
+    token.line,
+    token.col,
+  );
+}
+
+function parseReadStmt(cursor: TokenCursor): ReadStmt {
+  cursor.expect("Keyword", "READ");
+  const targets: LValue[] = [];
+  for (;;) {
+    targets.push(parseLValue(cursor));
+    if (!cursor.match("Operator", ",")) break;
+  }
+  return { kind: "ReadStmt", targets };
+}
+
+function parseRestoreStmt(cursor: TokenCursor): RestoreStmt {
+  cursor.expect("Keyword", "RESTORE");
+  const target = cursor.check("Number") ? parseLineNumberTarget(cursor, "RESTORE") : undefined;
+  return { kind: "RestoreStmt", target };
 }
 
 function parseLineNumberTarget(cursor: TokenCursor, context: string): number {

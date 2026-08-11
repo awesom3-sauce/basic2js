@@ -6,16 +6,17 @@
 // emit-print.ts); grew a helper alongside each control-flow/IO construct
 // that needed shared runtime logic since (FOR/NEXT's __nextFor, GOSUB's
 // __return and ON...GOTO/GOSUB's __onJumpTarget, INPUT's __inputCoerce,
-// DIM/array access's __arrAlloc/__arrEnsure/__arrIndex/__arrGet/__arrSet).
+// DIM/array access's __arrAlloc/__arrEnsure/__arrIndex/__arrGet/__arrSet,
+// DATA/READ/RESTORE's __readNext/__restoreTarget).
 // Arrays are represented as { dims: number[], data: T[] } — a flat array
 // with a manually computed linear index, not nested arrays, so 1D and 2D
 // (and, not that DIALECT.md's v1 scope asks for it, N-D) access share the
 // same indexing logic. Will likely be assembled from src/runtime/shared/*'s
-// logic once the full
-// builtin library (step 14) lands, rather than hand-written here. Helper
-// names are prefixed with "__" and are never valid BASIC identifiers
-// (which live in the V/ARR objects, not as bare JS identifiers — see
-// mangle.ts), so they can't collide with user variables. Helpers that need
+// logic once the full builtin library (step 14) lands, rather than
+// hand-written here. Helper names are prefixed with "__" and are never
+// valid BASIC identifiers (which live in the V/ARR objects, not as bare
+// JS identifiers — see mangle.ts), so they can't collide with user
+// variables. Helpers that need
 // closure state living inside run() (V, forStack, gosubStack) take it as
 // an explicit parameter, since PRELUDE functions sit outside that closure.
 
@@ -104,5 +105,24 @@ function __arrGet(ARR, key, indices, isString) {
 function __arrSet(ARR, key, indices, value, isString) {
   var entry = __arrEnsure(ARR, key, indices, isString);
   entry.data[__arrIndex(entry, indices)] = value;
+}
+function __readNext(ptr) {
+  // References the module-level DATA const directly (declared after this
+  // function but, since this only runs once run() is actually called —
+  // well after the whole module finishes evaluating — DATA is always
+  // initialized by then; same reasoning as LINESTART/DATA_LINE_STARTS
+  // being referenced directly by generated case bodies below).
+  if (ptr >= DATA.length) {
+    throw new Error("OUT OF DATA");
+  }
+  return DATA[ptr];
+}
+function __restoreTarget(line) {
+  if (line === null) return 0;
+  var ptr = DATA_LINE_STARTS[line];
+  if (ptr === undefined) {
+    throw new Error("RESTORE: no DATA at line " + line);
+  }
+  return ptr;
 }
 `.trim();

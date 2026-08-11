@@ -12,7 +12,7 @@
 
 import type { Expression } from "../ast/expressions.js";
 import type { DimDeclaration, LValue, PrintSegment } from "../ast/statements.js";
-import type { TypeSuffix } from "../ast/types.js";
+import type { BasicValue, TypeSuffix } from "../ast/types.js";
 
 export type Step =
   | PrintStep
@@ -26,6 +26,8 @@ export type Step =
   | OnJumpStep
   | InputStep
   | DimStep
+  | ReadStep
+  | RestoreStep
   | NoOpStep
   | HaltStep;
 
@@ -174,6 +176,30 @@ export interface DimStep extends StepBase {
   readonly declarations: readonly DimDeclaration[];
 }
 
+/**
+ * `READ var[, var...]`: pulls the next value(s) off the pre-collected
+ * `DATA` pool (see `lower(program)`'s pre-pass and emit-read.ts), assigning
+ * each in turn. Unlike INPUT, DATA values are already typed (number or
+ * string) from parsing — no coercion happens here, just a raw assignment
+ * (same as LET; deferred to step 15/16). Running past the end of the pool
+ * is an `OUT OF DATA` runtime error.
+ */
+export interface ReadStep extends StepBase {
+  readonly kind: "Read";
+  readonly targets: readonly LValue[];
+}
+
+/**
+ * `RESTORE [line-number]`: resets the runtime `dataPtr` to the start of
+ * the `DATA` pool (`target` undefined), or to the first `DATA` value
+ * originating from `target`'s line (a runtime error if that line has no
+ * `DATA` of its own — see DIALECT.md's Open Decisions).
+ */
+export interface RestoreStep extends StepBase {
+  readonly kind: "Restore";
+  readonly target?: number;
+}
+
 /** REM/`'` comments: no runtime effect, just falls through to the next step. */
 export interface NoOpStep extends StepBase {
   readonly kind: "NoOp";
@@ -190,4 +216,12 @@ export type LineIndex = ReadonlyMap<number, number>;
 export interface LoweredProgram {
   readonly steps: readonly Step[];
   readonly lineToStep: LineIndex;
+  /**
+   * Every `DATA` literal in the program, flattened in source order (a
+   * pre-pass over the whole `Program`, since `DATA` is non-executable and
+   * doesn't itself become a Step — see `lower(program)`).
+   */
+  readonly data: readonly BasicValue[];
+  /** Maps a BASIC line number to the index into `data` of that line's first DATA value, for `RESTORE <line>`. */
+  readonly dataLineStarts: LineIndex;
 }

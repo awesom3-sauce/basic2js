@@ -1,15 +1,14 @@
-// Lowering orchestrator: Program (AST) -> LoweredProgram (Step[] + lineToStep).
-//
-// TODO (build order step 11): add a pre-pass that collects every DataStmt's
-// literals (in line order) into one flat DATA array on LoweredProgram,
-// recording each entry's originating line for RESTORE <line>. Not needed
-// yet — DataStmt isn't parsed until step 11.
+// Lowering orchestrator: Program (AST) -> LoweredProgram (Step[] + lineToStep + DATA pool).
 
-import type { Program } from "../ast/program.js";
+import type { Line, Program } from "../ast/program.js";
+import type { Statement } from "../ast/statements.js";
+import type { BasicValue } from "../ast/types.js";
 import type { LoweredProgram, Step } from "./program.js";
 import { lowerStatementList } from "./lower-statements.js";
 
 export function lower(program: Program): LoweredProgram {
+  const { data, dataLineStarts } = collectData(program);
+
   const steps: Step[] = [];
   const lineToStep = new Map<number, number>();
 
@@ -35,5 +34,47 @@ export function lower(program: Program): LoweredProgram {
     steps.push(...lowered);
   }
 
-  return { steps, lineToStep };
+  return { steps, lineToStep, data, dataLineStarts };
+}
+
+/**
+ * Flattens every `DATA` literal in the program into one pool, in source
+ * order — `DATA` is non-executable (see lower-statements.ts's `DataStmt`
+ * case, which produces zero Steps), so this is the only place its values
+ * are ever collected. Recurses into `IfStmt` branches too (a `DATA`
+ * statement nested inside a `THEN`/`ELSE` clause is unusual but not
+ * disallowed by the grammar), not just each line's top-level statements.
+ */
+function collectData(program: Program): {
+  data: BasicValue[];
+  dataLineStarts: Map<number, number>;
+} {
+  const data: BasicValue[] = [];
+  const dataLineStarts = new Map<number, number>();
+
+  const visitLine = (line: Line): void => visitStatements(line.statements, line.lineNumber);
+
+  const visitStatements = (statements: readonly Statement[], lineNumber: number): void => {
+    for (const statement of statements) {
+      if (statement.kind === "DataStmt") {
+        // Only the *first* DATA statement on a given line sets that
+        // line's recorded start — later ones on the same line just keep
+        // appending, still correctly reachable by walking forward from it.
+        if (!dataLineStarts.has(lineNumber)) {
+          dataLineStarts.set(lineNumber, data.length);
+        }
+        for (const value of statement.values) data.push(value.v);
+      } else if (statement.kind === "IfStmt") {
+        if (statement.thenBranch.kind === "Statements") {
+          visitStatements(statement.thenBranch.statements, lineNumber);
+        }
+        if (statement.elseBranch?.kind === "Statements") {
+          visitStatements(statement.elseBranch.statements, lineNumber);
+        }
+      }
+    }
+  };
+
+  for (const line of program.lines) visitLine(line);
+  return { data, dataLineStarts };
 }

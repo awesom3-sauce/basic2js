@@ -12,16 +12,17 @@
 // Implemented: Print, Let, Goto, NoOp, Halt (build order step 4), If
 // (build order step 6), For/Next (build order step 7),
 // Gosub/Return/OnJump (build order step 8), Input (build order step 9),
-// and Dim (build order step 10) — exactly the Step kinds lowering
-// currently produces (see src/ir/program.ts). Input is the only Step kind
-// whose case body contains an `await` beyond the print calls emitted here
-// (`rt.print` is always awaited too, for host symmetry — see
-// src/runtime/interface.ts).
+// Dim (build order step 10), and Read/Restore (build order step 11) —
+// exactly the Step kinds lowering currently produces (see
+// src/ir/program.ts). Input is the only Step kind whose case body
+// contains an `await` beyond the print calls emitted here (`rt.print` is
+// always awaited too, for host symmetry — see src/runtime/interface.ts).
 
 import type { Step } from "../ir/program.js";
 import { emitExpression } from "./emit-expressions.js";
 import { emitPrintCall } from "./emit-print.js";
 import { emitInputCall } from "./emit-input.js";
+import { emitReadCall } from "./emit-read.js";
 import { emitJumpTarget } from "./emit-jump-target.js";
 import { varKey } from "./mangle.js";
 import { assertNever } from "../util/assert-never.js";
@@ -119,6 +120,14 @@ function emitStepBody(step: Step, stepIndex: number): string {
         })
         .join(" ");
       return `${allocations} pc = ${stepIndex + 1}; break;`;
+    }
+
+    case "Read":
+      return emitReadCall(step, stepIndex);
+
+    case "Restore": {
+      const target = step.target === undefined ? "null" : String(step.target);
+      return `dataPtr = __restoreTarget(${target}); pc = ${stepIndex + 1}; break;`;
     }
 
     case "NoOp":

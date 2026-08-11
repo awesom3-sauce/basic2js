@@ -617,3 +617,38 @@ describe("parse — DIM / arrays", () => {
     });
   });
 });
+
+describe("parse — DATA/READ/RESTORE", () => {
+  it("parses a DATA statement with numbers and quoted strings", () => {
+    expect(firstStatement('10 DATA 1, -5, "Alice"')).toEqual({
+      kind: "DataStmt",
+      values: [
+        { t: "num", v: 1 },
+        { t: "num", v: -5 },
+        { t: "str", v: "Alice" },
+      ],
+    });
+  });
+
+  it("rejects an unquoted bare-word DATA value", () => {
+    expect(() => parseSource("10 DATA JOHN")).toThrow(ParseError);
+  });
+
+  it("parses READ with multiple targets", () => {
+    expect(firstStatement("10 READ A, B$")).toEqual({
+      kind: "ReadStmt",
+      targets: [
+        { kind: "Variable", name: "a", suffix: "" },
+        { kind: "Variable", name: "b", suffix: "$" },
+      ],
+    });
+  });
+
+  it("parses a bare RESTORE", () => {
+    expect(firstStatement("10 RESTORE")).toEqual({ kind: "RestoreStmt", target: undefined });
+  });
+
+  it("parses RESTORE with a line-number target", () => {
+    expect(firstStatement("10 RESTORE 100")).toEqual({ kind: "RestoreStmt", target: 100 });
+  });
+});

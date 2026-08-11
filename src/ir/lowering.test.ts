@@ -330,3 +330,46 @@ describe("lower — DIM / arrays", () => {
     ]);
   });
 });
+
+describe("lower — DATA/READ/RESTORE", () => {
+  it("produces no Step for DATA, but collects its values into the flat pool", () => {
+    const { steps, data } = lowerSource("10 DATA 1, 2, 3");
+    expect(steps).toEqual([]);
+    expect(data).toEqual([1, 2, 3]);
+  });
+
+  it("collects DATA from multiple lines into one pool, in source order", () => {
+    const { data } = lowerSource('10 DATA 1\n20 PRINT "x"\n30 DATA 2, 3');
+    expect(data).toEqual([1, 2, 3]);
+  });
+
+  it("records dataLineStarts for each line that has its own DATA", () => {
+    const { data, dataLineStarts } = lowerSource("10 DATA 1, 2\n20 DATA 3, 4");
+    expect(dataLineStarts.get(10)).toBe(0);
+    expect(dataLineStarts.get(20)).toBe(2);
+    expect(data).toEqual([1, 2, 3, 4]);
+  });
+
+  it("lowers READ 1:1 into a Read step", () => {
+    const { steps } = lowerSource("10 READ A, B$");
+    expect(steps).toEqual([
+      {
+        kind: "Read",
+        line: 10,
+        targets: [
+          { kind: "Variable", name: "a", suffix: "" },
+          { kind: "Variable", name: "b", suffix: "$" },
+        ],
+      },
+    ]);
+  });
+
+  it("lowers RESTORE 1:1 into a Restore step", () => {
+    expect(lowerSource("10 RESTORE").steps).toEqual([
+      { kind: "Restore", line: 10, target: undefined },
+    ]);
+    expect(lowerSource("10 RESTORE 100").steps).toEqual([
+      { kind: "Restore", line: 10, target: 100 },
+    ]);
+  });
+});

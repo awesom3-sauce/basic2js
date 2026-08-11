@@ -77,12 +77,18 @@ build order progresses. Currently everything is `[ ]` — this is the target spe
   `identifier(args)` in an expression is always parsed as an array reference (never a builtin/DEF FN
   call) — correct for now since neither exists yet; steps 13/14 will need to add real
   disambiguation.
-- `DATA value, value, ...` — non-executable; all `DATA` statements in the program are collected
-  (in line order) into one flat pool before execution begins.
-- `READ var[, var...]` — advances a shared pointer into the `DATA` pool, coercing each value to
-  its target's suffix. Reading past the end is an `OUT OF DATA` runtime error.
+- `DATA value, value, ...` — non-executable; all `DATA` statements in the program (including any
+  nested inside an `IF`/`THEN`/`ELSE` branch) are collected, in source order, into one flat pool
+  before execution begins. Each `value` must be a number (optionally negative) or a _quoted_ string
+  literal — unquoted bare-word string data (`DATA JOHN, 25`, valid in real BASIC) isn't supported,
+  see Open Decisions.
+- `READ var[, var...]` — advances a shared pointer into the `DATA` pool. Unlike `INPUT`, `DATA`
+  values are already typed from parsing, so `READ` does a raw assignment with no suffix
+  coercion/validation (deferred to step 15/16, same as `LET`). Reading past the end is an
+  `OUT OF DATA` runtime error.
 - `RESTORE [line-number]` — resets the `DATA` pointer to the start of the pool, or to the first
-  `DATA` value originating from the given line.
+  `DATA` value originating from the given line (a runtime error if that line has no `DATA` of its
+  own — see Open Decisions).
 - `DEF FN name(param[, param...]) = expr` — single-line user function. Parameters shadow locally;
   any free variable referenced in the body reads live from the caller's variable state (confirm
   and document exact scoping when implementing step 13).
@@ -183,3 +189,11 @@ revisited explicitly** — if you change one, update this section and any golden
   as supported, N-D) index computation uniform. An implementation detail, not user-visible.
 - **Re-`DIM`ing an array**: silently reallocates (resets) it rather than raising GW-BASIC's
   `Redimensioned array` error. Revisit alongside step 16's error-taxonomy polish if it matters.
+- **Unquoted DATA values**: not supported — only numbers and quoted strings. Real BASIC allows
+  bare-word string data (`DATA JOHN, 25`), but the lexer already normalizes identifier-shaped
+  tokens to lowercase at tokenize time (it has no way to know, that early, that a token is a DATA
+  value rather than an identifier that legitimately should be case-normalized), which would
+  silently corrupt an unquoted value's case. Requiring quotes sidesteps this entirely.
+- **`RESTORE <line>` targeting a line with no `DATA` of its own**: a runtime error ("RESTORE: no
+  DATA at line N"), rather than falling back to the nearest following `DATA`-bearing line. Simpler,
+  and `RESTORE` almost always targets a line that actually has `DATA` in practice.

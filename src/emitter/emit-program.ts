@@ -1,25 +1,31 @@
 // Emitter orchestrator: LoweredProgram -> full JS source text.
 //
-// Produces a self-contained ES module: PRELUDE's support helpers, a
-// LINESTART table (BASIC line number -> step index, built straight from
-// lineToStep), and `export async function run(rt) { ... }` — the async
-// dispatch-loop / virtual-PC trampoline described in CLAUDE.md. Emitted
-// code only ever calls into the `rt` (BasicRuntime) parameter for I/O —
-// never process.stdout/DOM/etc. directly — and has zero import
+// Produces a self-contained ES module: PRELUDE's support helpers,
+// LINESTART/DATA_LINE_STARTS tables (BASIC line number -> step
+// index/DATA-pool index, built straight from lineToStep/dataLineStarts),
+// the DATA pool itself, and `export async function run(rt) { ... }` — the
+// async dispatch-loop / virtual-PC trampoline described in CLAUDE.md.
+// Emitted code only ever calls into the `rt` (BasicRuntime) parameter for
+// I/O — never process.stdout/DOM/etc. directly — and has zero import
 // dependencies of its own, so it can be written to a standalone .js file
 // or loaded straight from a source string (see src/util/load-js-module.ts).
 
+import type { BasicValue } from "../ast/types.js";
 import type { LineIndex, LoweredProgram } from "../ir/program.js";
 import { emitStep } from "./emit-statements.js";
 import { PRELUDE } from "./prelude.js";
 
 export function emit(lowered: LoweredProgram): string {
-  const linestart = emitLineStartTable(lowered.lineToStep);
+  const linestart = emitLineTable(lowered.lineToStep);
+  const dataLineStarts = emitLineTable(lowered.dataLineStarts);
+  const data = emitDataArray(lowered.data);
   const cases = lowered.steps.map((step, index) => emitStep(step, index)).join("\n      ");
 
   return `${PRELUDE}
 
 const LINESTART = ${linestart};
+const DATA = ${data};
+const DATA_LINE_STARTS = ${dataLineStarts};
 
 export async function run(rt) {
   const V = {};
@@ -28,6 +34,7 @@ export async function run(rt) {
   const gosubStack = [];
   let pc = 0;
   let __line = 0;
+  let dataPtr = 0;
   try {
     while (pc !== -1) {
       switch (pc) {
@@ -43,7 +50,14 @@ export async function run(rt) {
 `;
 }
 
-function emitLineStartTable(lineToStep: LineIndex): string {
-  const entries = [...lineToStep.entries()].map(([line, step]) => `${line}: ${step}`);
+function emitLineTable(table: LineIndex): string {
+  const entries = [...table.entries()].map(([line, value]) => `${line}: ${value}`);
   return `{ ${entries.join(", ")} }`;
+}
+
+function emitDataArray(data: readonly BasicValue[]): string {
+  const items = data.map((value) =>
+    typeof value === "string" ? JSON.stringify(value) : String(value),
+  );
+  return `[${items.join(", ")}]`;
 }
