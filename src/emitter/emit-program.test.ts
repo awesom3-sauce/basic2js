@@ -266,3 +266,73 @@ describe("emit — IF/THEN/ELSE", () => {
     expect(rt.output).toBe(" 1 \n 2 \n 3 \n 4 \n 5 \nDONE\n");
   });
 });
+
+describe("emit — FOR/NEXT", () => {
+  it("counts up over the inclusive range, defaulting STEP to 1", async () => {
+    const rt = await runBasic("10 FOR I = 1 TO 5\n20 PRINT I\n30 NEXT I");
+    expect(rt.output).toBe(" 1 \n 2 \n 3 \n 4 \n 5 \n");
+  });
+
+  it("counts down with a negative STEP", async () => {
+    const rt = await runBasic("10 FOR I = 5 TO 1 STEP -1\n20 PRINT I\n30 NEXT I");
+    expect(rt.output).toBe(" 5 \n 4 \n 3 \n 2 \n 1 \n");
+  });
+
+  it("respects a STEP that doesn't evenly divide the range", async () => {
+    const rt = await runBasic("10 FOR I = 1 TO 10 STEP 3\n20 PRINT I\n30 NEXT I");
+    expect(rt.output).toBe(" 1 \n 4 \n 7 \n 10 \n");
+  });
+
+  it("does not pre-test the condition: the body runs once even if start already fails the end test", async () => {
+    // Classic BASIC quirk: FOR doesn't check start<=end before the first
+    // iteration, only NEXT checks whether to continue. See DIALECT.md.
+    const rt = await runBasic("10 FOR I = 1 TO 0\n20 PRINT I\n30 NEXT I");
+    expect(rt.output).toBe(" 1 \n");
+  });
+
+  it("supports a bare NEXT matching the innermost FOR", async () => {
+    const rt = await runBasic("10 FOR I = 1 TO 3\n20 PRINT I\n30 NEXT");
+    expect(rt.output).toBe(" 1 \n 2 \n 3 \n");
+  });
+
+  it("supports properly nested FOR loops", async () => {
+    const rt = await runBasic(
+      "10 FOR I = 1 TO 2\n20 FOR J = 1 TO 2\n30 PRINT I; J\n40 NEXT J\n50 NEXT I",
+    );
+    expect(rt.output).toBe(" 1  1 \n 1  2 \n 2  1 \n 2  2 \n");
+  });
+
+  it("evaluates end/step using the loop variable's pre-loop value, not the just-assigned start", async () => {
+    // FOR I = 1 TO I * 2 with I previously 3: end should be 6 (3*2), not 2 (1*2).
+    const rt = await runBasic("10 LET I = 3\n20 FOR I = 1 TO I * 2\n30 PRINT I\n40 NEXT I");
+    expect(rt.output).toBe(" 1 \n 2 \n 3 \n 4 \n 5 \n 6 \n");
+  });
+
+  it("raises NEXT WITHOUT FOR when the stack is empty", async () => {
+    const rt = await runBasic("10 NEXT");
+    expect(rt.output).toBe("");
+    expect(rt.errors).toHaveLength(1);
+    expect(rt.errors[0]?.message).toMatch(/NEXT WITHOUT FOR/);
+  });
+
+  it("lets NEXT <outer var> implicitly close an inner loop GOTO abandoned without its own NEXT", async () => {
+    const rt = await runBasic(
+      [
+        "10 FOR I = 1 TO 3",
+        "20 FOR J = 1 TO 3",
+        "30 IF J = 2 THEN 60",
+        "40 PRINT I; J",
+        "50 NEXT J",
+        "60 NEXT I",
+      ].join("\n"),
+    );
+    // Each outer iteration abandons J's loop after J=1 (jumping straight
+    // to "NEXT I"), discarding J's frame; I's loop still runs 1..3.
+    expect(rt.output).toBe(" 1  1 \n 2  1 \n 3  1 \n");
+  });
+
+  it("runs a real counting loop built with FOR/NEXT instead of GOTO/IF", async () => {
+    const rt = await runBasic('10 FOR N = 1 TO 5\n20 PRINT N\n30 NEXT N\n40 PRINT "DONE"');
+    expect(rt.output).toBe(" 1 \n 2 \n 3 \n 4 \n 5 \nDONE\n");
+  });
+});

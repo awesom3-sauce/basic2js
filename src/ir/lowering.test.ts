@@ -4,7 +4,7 @@ import { parse } from "../parser/parser.js";
 import { lower } from "./lowering.js";
 import { lowerStatement } from "./lower-statements.js";
 import type { LoweredProgram } from "./program.js";
-import type { ForStmt } from "../ast/statements.js";
+import type { GosubStmt } from "../ast/statements.js";
 
 function lowerSource(source: string): LoweredProgram {
   return lower(parse(tokenize(source)));
@@ -50,18 +50,58 @@ describe("lower — statement kinds", () => {
   });
 
   it("throws a clear internal error when asked to lower an unsupported statement kind", () => {
-    // Bypasses the parser (which never produces ForStmt yet) to exercise
+    // Bypasses the parser (which never produces GosubStmt yet) to exercise
     // lower-statements.ts's defensive backstop directly.
-    const fakeForStmt: ForStmt = {
-      kind: "ForStmt",
-      variable: "i",
-      suffix: "",
-      start: { kind: "NumberLiteral", value: 1 },
-      end: { kind: "NumberLiteral", value: 10 },
-    };
+    const fakeGosubStmt: GosubStmt = { kind: "GosubStmt", target: 100 };
     expect(() =>
-      lowerStatement(fakeForStmt, 10, { stepIndexOffset: 0, nextLineNumber: undefined }),
+      lowerStatement(fakeGosubStmt, 10, { stepIndexOffset: 0, nextLineNumber: undefined }),
     ).toThrow(/not implemented yet/);
+  });
+});
+
+describe("lower — FOR/NEXT", () => {
+  it("lowers FOR 1:1 into a For step, defaulting an omitted STEP to undefined", () => {
+    const { steps } = lowerSource("10 FOR I = 1 TO 10");
+    expect(steps).toEqual([
+      {
+        kind: "For",
+        line: 10,
+        variable: "i",
+        suffix: "",
+        start: { kind: "NumberLiteral", value: 1 },
+        end: { kind: "NumberLiteral", value: 10 },
+        step: undefined,
+      },
+    ]);
+  });
+
+  it("carries an explicit STEP expression through", () => {
+    const { steps } = lowerSource("10 FOR I = 10 TO 1 STEP -1");
+    const forStep = steps[0]!;
+    if (forStep.kind !== "For") throw new Error("expected For step");
+    expect(forStep.step).toEqual({
+      kind: "UnaryExpr",
+      op: "-",
+      operand: { kind: "NumberLiteral", value: 1 },
+    });
+  });
+
+  it("lowers a bare NEXT into a single Next step with variable undefined", () => {
+    const { steps } = lowerSource("10 NEXT");
+    expect(steps).toEqual([{ kind: "Next", line: 10, variable: undefined }]);
+  });
+
+  it("lowers NEXT with one variable into a single Next step naming it", () => {
+    const { steps } = lowerSource("10 NEXT I");
+    expect(steps).toEqual([{ kind: "Next", line: 10, variable: "i" }]);
+  });
+
+  it("lowers NEXT with multiple variables into separate sequential Next steps", () => {
+    const { steps } = lowerSource("10 NEXT I, J");
+    expect(steps).toEqual([
+      { kind: "Next", line: 10, variable: "i" },
+      { kind: "Next", line: 10, variable: "j" },
+    ]);
   });
 });
 

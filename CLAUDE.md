@@ -259,4 +259,18 @@ the relevant step above — that's the intended landing spot for each piece of r
   and a new `fizzbuzz` golden program (GOTO/IF-based, since `FOR`/`NEXT` isn't implemented yet) both
   pass; the counting-loop golden test deferred at step 5 is now a real behavioral test.
 
-Next: step 7, `FOR`/`NEXT` with `STEP` (runtime stack semantics).
+- Step 7 (`FOR`/`NEXT` with `STEP`) — `ForStep` needs no explicit "body start" field: by
+  construction it's always `stepIndex + 1`, the same trivially-known value every other step kind
+  already uses for normal fallthrough. The runtime `forStack` lives in `run()`'s closure (pushed by
+  `ForStep`, popped/tested by `NextStep` via a shared `__nextFor` prelude helper, since PRELUDE
+  functions sit outside `run()`'s closure and need `V`/`forStack` passed in explicitly). A
+  multi-variable `NEXT I, J` lowers to two independent `NextStep`s rather than one step closing two
+  frames atomically — simpler, and matches treating it as shorthand for consecutive single-variable
+  `NEXT`s (see DIALECT.md). Confirmed by direct experimentation (not just reasoning) that classic
+  BASIC's `FOR` does **not** pre-test the loop condition — `FOR I = 1 TO 0` still runs the body once,
+  only `NEXT` ever checks whether to continue — and that `start`/`end`/`step` must all be evaluated
+  using the loop variable's pre-loop value before it gets reassigned (`FOR I = 1 TO I * 2` needs I's
+  old value for the bound). `fizzbuzz`'s golden program was rewritten to use real `FOR`/`NEXT`
+  instead of its step-6 GOTO/IF workaround, with identical output confirming both approaches agree.
+
+Next: step 8, `GOSUB`/`RETURN`, `ON GOTO`/`ON GOSUB`.

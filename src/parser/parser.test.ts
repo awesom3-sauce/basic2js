@@ -258,8 +258,46 @@ describe("parse — lines and program structure", () => {
 
 describe("parse — not-yet-implemented statements", () => {
   it("raises a clear error for a keyword without parser support yet", () => {
-    expect(() => parseSource("10 FOR I = 1 TO 10")).toThrow(ParseError);
-    expect(() => parseSource("10 FOR I = 1 TO 10")).toThrow(/not implemented yet/);
+    expect(() => parseSource("10 GOSUB 100")).toThrow(ParseError);
+    expect(() => parseSource("10 GOSUB 100")).toThrow(/not implemented yet/);
+  });
+});
+
+describe("parse — FOR/NEXT", () => {
+  it("parses FOR with no STEP (defaults handled at lowering, not parsing)", () => {
+    const stmt = firstStatement("10 FOR I = 1 TO 10");
+    expect(stmt).toEqual({
+      kind: "ForStmt",
+      variable: "i",
+      suffix: "",
+      start: { kind: "NumberLiteral", value: 1 },
+      end: { kind: "NumberLiteral", value: 10 },
+      step: undefined,
+    });
+  });
+
+  it("parses FOR with an explicit STEP", () => {
+    const stmt = firstStatement("10 FOR I% = 10 TO 1 STEP -1");
+    expect(stmt).toEqual({
+      kind: "ForStmt",
+      variable: "i",
+      suffix: "%",
+      start: { kind: "NumberLiteral", value: 10 },
+      end: { kind: "NumberLiteral", value: 1 },
+      step: { kind: "UnaryExpr", op: "-", operand: { kind: "NumberLiteral", value: 1 } },
+    });
+  });
+
+  it("parses a bare NEXT", () => {
+    expect(firstStatement("10 NEXT")).toEqual({ kind: "NextStmt", variables: [] });
+  });
+
+  it("parses NEXT with a single variable", () => {
+    expect(firstStatement("10 NEXT I")).toEqual({ kind: "NextStmt", variables: ["i"] });
+  });
+
+  it("parses NEXT with multiple variables", () => {
+    expect(firstStatement("10 NEXT I, J")).toEqual({ kind: "NextStmt", variables: ["i", "j"] });
   });
 });
 

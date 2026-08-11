@@ -2,19 +2,21 @@
 // the leading token in parseStatement().
 //
 // Implemented: PRINT, LET (explicit `LET` and implicit assignment), GOTO,
-// REM (via the lexer's Comment token), END, STOP (build order step 2), and
-// IF/THEN/ELSE (build order step 6). Every other keyword the lexer
-// recognizes (FOR, GOSUB, ON, WHILE, DIM, DATA, READ, RESTORE, DEF, INPUT
-// — see src/lexer/keywords.ts) currently raises a clear "not implemented
-// yet" ParseError rather than being silently mis-parsed; each lands in its
-// own build-order step (see CLAUDE.md).
+// REM (via the lexer's Comment token), END, STOP (build order step 2),
+// IF/THEN/ELSE (build order step 6), and FOR/NEXT (build order step 7).
+// Every other keyword the lexer recognizes (GOSUB, ON, WHILE, DIM, DATA,
+// READ, RESTORE, DEF, INPUT — see src/lexer/keywords.ts) currently raises
+// a clear "not implemented yet" ParseError rather than being silently
+// mis-parsed; each lands in its own build-order step (see CLAUDE.md).
 
 import type {
+  ForStmt,
   GotoStmt,
   IfBranch,
   IfStmt,
   LetStmt,
   LValue,
+  NextStmt,
   PrintSegment,
   PrintStmt,
   Statement,
@@ -64,6 +66,10 @@ export function parseStatement(cursor: TokenCursor): Statement {
         return parseGotoStmt(cursor);
       case "IF":
         return parseIfStmt(cursor);
+      case "FOR":
+        return parseForStmt(cursor);
+      case "NEXT":
+        return parseNextStmt(cursor);
       case "END":
         cursor.advance();
         return { kind: "EndStmt" };
@@ -176,6 +182,38 @@ function parseIfBranch(cursor: TokenCursor): IfBranch {
     break;
   }
   return { kind: "Statements", statements };
+}
+
+/** `FOR var = start TO end [STEP step]`. */
+function parseForStmt(cursor: TokenCursor): ForStmt {
+  cursor.expect("Keyword", "FOR");
+  const varToken = cursor.expect("Identifier");
+  const { name, suffix } = splitSuffix(stringValue(varToken));
+  cursor.expect("Operator", "=");
+  const start = parseExpression(cursor);
+  cursor.expect("Keyword", "TO");
+  const end = parseExpression(cursor);
+  const step = cursor.match("Keyword", "STEP") ? parseExpression(cursor) : undefined;
+  return { kind: "ForStmt", variable: name, suffix, start, end, step };
+}
+
+/**
+ * `NEXT [var[, var...]]`. A bare `NEXT` matches the innermost open `FOR`
+ * (see lowerStatement's handling of an empty `variables` list). A
+ * multi-variable `NEXT I, J` is treated as shorthand for separate
+ * consecutive `NEXT I` / `NEXT J` statements — see DIALECT.md.
+ */
+function parseNextStmt(cursor: TokenCursor): NextStmt {
+  cursor.expect("Keyword", "NEXT");
+  const variables: string[] = [];
+  if (!isStatementEnd(cursor)) {
+    for (;;) {
+      const token = cursor.expect("Identifier");
+      variables.push(splitSuffix(stringValue(token)).name);
+      if (!cursor.match("Operator", ",")) break;
+    }
+  }
+  return { kind: "NextStmt", variables };
 }
 
 function parseLineNumberTarget(cursor: TokenCursor, context: string): number {

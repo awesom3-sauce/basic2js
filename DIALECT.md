@@ -44,7 +44,14 @@ build order progresses. Currently everything is `[ ]` — this is the target spe
 - `FOR var = start TO end [STEP step]` / `NEXT [var[, var...]]` — runtime stack semantics (not
   static lexical pairing), because `GOTO` may jump into/out of a loop body and a bare `NEXT` must
   match the innermost open `FOR`. `NEXT` without a matching `FOR` is a `NEXT WITHOUT FOR` runtime
-  error.
+  error. `start`/`end`/`step` are all evaluated once, using whatever value `var` held _before_ the
+  `FOR` (so `FOR I = 1 TO I * 2` uses I's old value for the bound, not the just-assigned `1`), and
+  only then is `var` assigned `start`. `NEXT var` (naming an outer loop while an inner one is still
+  open) implicitly discards the unclosed inner frame(s) — matches real BASIC's "GOTO may abandon a
+  loop with no matching NEXT" behavior. **`FOR` does not pre-test the condition**: `FOR I = 1 TO 0`
+  still runs the body once — only `NEXT` ever checks whether to continue (a well-known classic-BASIC
+  quirk, not a bug). A multi-variable `NEXT I, J` is treated as shorthand for separate consecutive
+  `NEXT I` / `NEXT J` statements (see Open Decisions).
 - `GOTO line-number`, `GOSUB line-number` / `RETURN`.
 - `ON expr GOTO line1, line2, ...` / `ON expr GOSUB line1, line2, ...` — 1-indexed selector. See
   Open Decisions for out-of-range behavior (locked default: silent fallthrough, no error).
@@ -145,3 +152,7 @@ revisited explicitly** — if you change one, update this section and any golden
 - **Integer division `\`**: emitted as `Math.trunc(left / right)`. Real GW-BASIC may round each
   operand to an integer _before_ dividing rather than just truncating the final quotient —
   unverified; revisit in step 14/16 polish if it matters for a golden program.
+- **Multi-variable `NEXT I, J`**: treated as shorthand for separate consecutive `NEXT I` / `NEXT J`
+  statements (each lowers to its own independent Step, evaluated in the order written). Real BASIC
+  dialects vary on the exact semantics here and it's a rare construct in practice; revisit only if
+  a real-world program needs different behavior.

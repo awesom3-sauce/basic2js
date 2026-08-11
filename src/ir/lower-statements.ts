@@ -3,17 +3,17 @@
 // Implemented: PrintStmt, LetStmt, GotoStmt, RemStmt, EndStmt, StopStmt
 // (build order step 3) each lower 1:1 into a single Step; IfStmt (build
 // order step 6) lowers into an IfStep plus its branches' recursively
-// lowered sub-steps (see lowerIfStmt below). Every other Statement kind is
-// handled by an explicit case that throws — the parser doesn't produce
-// them yet (unsupported keywords raise a ParseError before lowering ever
-// runs), so these branches exist purely as a defensive backstop and,
-// together with the final `assertNever`, keep this switch exhaustive:
-// adding a new Statement kind without updating this file becomes a
-// compile-time TS error. Each one gets a real implementation in its own
-// build-order step — see the per-construct rules in CLAUDE.md's
-// "dispatch-loop / virtual-PC emitter" section:
-// - ForStmt/NextStmt (step 7): runtime forStack frames (GOTO can jump
-//   into/out of loop bodies, so pairing must be dynamic, not static).
+// lowered sub-steps (see lowerIfStmt below); ForStmt lowers 1:1 into a
+// ForStep, and NextStmt lowers into one NextStep per named variable (or a
+// single bare NextStep if no variables were given — build order step 7).
+// Every other Statement kind is handled by an explicit case that throws —
+// the parser doesn't produce them yet (unsupported keywords raise a
+// ParseError before lowering ever runs), so these branches exist purely
+// as a defensive backstop and, together with the final `assertNever`,
+// keep this switch exhaustive: adding a new Statement kind without
+// updating this file becomes a compile-time TS error. Each one gets a
+// real implementation in its own build-order step — see the per-construct
+// rules in CLAUDE.md's "dispatch-loop / virtual-PC emitter" section:
 // - GosubStmt/ReturnStmt/OnJumpStmt (step 8): runtime gosubStack of return
 //   step-indices; ON...GOTO/GOSUB out-of-range selector falls through with
 //   no error (locked default, see DIALECT.md).
@@ -26,7 +26,7 @@
 //   lowering time, unlike FOR/NEXT's runtime stack.
 // - DefFnStmt (step 13).
 
-import type { IfStmt, Statement } from "../ast/statements.js";
+import type { IfStmt, NextStmt, Statement } from "../ast/statements.js";
 import type { JumpTarget, Step } from "./program.js";
 import { assertNever } from "../util/assert-never.js";
 
@@ -64,9 +64,23 @@ export function lowerStatement(statement: Statement, line: number, ctx: Lowering
     case "IfStmt":
       return lowerIfStmt(statement, line, ctx);
 
-    case "InputStmt":
     case "ForStmt":
+      return [
+        {
+          kind: "For",
+          line,
+          variable: statement.variable,
+          suffix: statement.suffix,
+          start: statement.start,
+          end: statement.end,
+          step: statement.step,
+        },
+      ];
+
     case "NextStmt":
+      return lowerNextStmt(statement, line);
+
+    case "InputStmt":
     case "GosubStmt":
     case "ReturnStmt":
     case "OnJumpStmt":
@@ -166,4 +180,18 @@ function lowerIfStmt(stmt: IfStmt, line: number, ctx: LoweringContext): Step[] {
 
   const ifStep: Step = { kind: "If", line, condition: stmt.condition, thenTarget, elseTarget };
   return [ifStep, ...thenSteps, ...skipStep, ...elseSteps];
+}
+
+/**
+ * A bare `NEXT` (empty `variables`) lowers to one NextStep matching
+ * whatever's on top of `forStack`. `NEXT I, J` lowers to two separate
+ * NextSteps in sequence — see DIALECT.md for why this is treated as
+ * shorthand for consecutive single-variable NEXTs rather than one step
+ * that closes multiple frames atomically.
+ */
+function lowerNextStmt(stmt: NextStmt, line: number): Step[] {
+  if (stmt.variables.length === 0) {
+    return [{ kind: "Next", line, variable: undefined }];
+  }
+  return stmt.variables.map((variable) => ({ kind: "Next", line, variable }) as Step);
 }

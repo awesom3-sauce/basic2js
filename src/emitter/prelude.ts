@@ -2,8 +2,8 @@
 // generated output.js, so emitted files have zero import dependencies on
 // this compiler's own source tree (see CLAUDE.md's runtime host contract).
 //
-// Scope note: started in build order step 4 with just the two helpers
-// PRINT needs (see emit-print.ts); expanded through step 14 as more
+// Scope note: started in build order step 4 with PRINT's two formatting
+// helpers (see emit-print.ts); expanded through step 14 as more
 // builtins/formatting rules land, at which point this may be assembled
 // from src/runtime/shared/*'s logic rather than hand-written here. Helper
 // names are prefixed with "__" and are never valid BASIC identifiers
@@ -17,5 +17,23 @@ function __fmtNum(n) {
 function __tabPad(currentLength) {
   var nextZone = (Math.floor(currentLength / 14) + 1) * 14;
   return " ".repeat(nextZone - currentLength);
+}
+function __nextFor(V, forStack, variable, fallthroughPc) {
+  var frame;
+  for (;;) {
+    frame = forStack.pop();
+    if (frame === undefined) {
+      throw new Error("NEXT WITHOUT FOR" + (variable !== null ? " " + variable : ""));
+    }
+    if (variable === null || frame.key === variable) break;
+  }
+  var newValue = V[frame.key] + frame.step;
+  V[frame.key] = newValue;
+  var continuing = frame.step >= 0 ? newValue <= frame.limit : newValue >= frame.limit;
+  if (continuing) {
+    forStack.push(frame);
+    return frame.bodyPc;
+  }
+  return fallthroughPc;
 }
 `.trim();

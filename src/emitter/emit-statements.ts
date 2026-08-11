@@ -9,12 +9,12 @@
 // per-case blocks). Wrapping every case uniformly avoids depending on
 // which kinds happen to need locals staying that way forever.
 //
-// Implemented: Print, Let, Goto, NoOp, Halt (build order step 4) and If
-// (build order step 6) — exactly the Step kinds lowering currently
-// produces (see src/ir/program.ts). INPUT (step 9) will be the only Step
-// kind whose case body contains an `await` beyond the print calls emitted
-// here (`rt.print` is always awaited too, for host symmetry — see
-// src/runtime/interface.ts).
+// Implemented: Print, Let, Goto, NoOp, Halt (build order step 4), If
+// (build order step 6), and For/Next (build order step 7) — exactly the
+// Step kinds lowering currently produces (see src/ir/program.ts). INPUT
+// (step 9) will be the only Step kind whose case body contains an `await`
+// beyond the print calls emitted here (`rt.print` is always awaited too,
+// for host symmetry — see src/runtime/interface.ts).
 
 import type { Step } from "../ir/program.js";
 import { emitExpression } from "./emit-expressions.js";
@@ -47,6 +47,31 @@ function emitStepBody(step: Step, stepIndex: number): string {
 
     case "If":
       return `pc = (${emitExpression(step.condition)}) ? (${emitJumpTarget(step.thenTarget)}) : (${emitJumpTarget(step.elseTarget)}); break;`;
+
+    case "For": {
+      const key = JSON.stringify(varKey(step.variable, step.suffix));
+      const stepExpr = step.step === undefined ? "1" : emitExpression(step.step);
+      const bodyPc = stepIndex + 1;
+      // start/end/step are all evaluated first, using whatever value the
+      // loop variable held *before* this FOR (relevant if e.g. `end`
+      // itself references the loop variable, as in `FOR I = 1 TO I * 2`)
+      // — only once all three are computed does V[key] get reassigned.
+      // (No extra `{ }` needed around these `const`s: emitStep already
+      // wraps this whole case body in its own block.)
+      return (
+        `const __start = ${emitExpression(step.start)}; ` +
+        `const __limit = ${emitExpression(step.end)}; ` +
+        `const __step = ${stepExpr}; ` +
+        `V[${key}] = __start; ` +
+        `forStack.push({ key: ${key}, limit: __limit, step: __step, bodyPc: ${bodyPc} }); ` +
+        `pc = ${bodyPc}; break;`
+      );
+    }
+
+    case "Next": {
+      const variable = step.variable === undefined ? "null" : JSON.stringify(step.variable);
+      return `pc = __nextFor(V, forStack, ${variable}, ${stepIndex + 1}); break;`;
+    }
 
     case "NoOp":
       return `pc = ${stepIndex + 1}; break;`;
