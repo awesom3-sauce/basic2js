@@ -12,21 +12,22 @@
 // ReadStmt/RestoreStmt each lower 1:1 into a single Step, while DataStmt
 // lowers to *no* steps at all — it's collected in a separate pre-pass over
 // the whole Program (see lowering.ts) since it's non-executable (build
-// order step 11). Every other Statement kind is handled by an explicit
-// case that throws — the parser doesn't produce them yet (unsupported
-// keywords raise a ParseError before lowering ever runs), so these
-// branches exist purely as a defensive backstop and, together with the
-// final `assertNever`, keep this switch exhaustive: adding a new
-// Statement kind without updating this file becomes a compile-time TS
-// error. Each one gets a real implementation in its own build-order step
-// — see the per-construct rules in CLAUDE.md's "dispatch-loop /
-// virtual-PC emitter" section:
-// - WhileStmt/WendStmt (step 12): purely static bracket-matching at
-//   lowering time, unlike FOR/NEXT's runtime stack.
+// order step 11); WhileStmt/WendStmt each lower 1:1 into a single Step
+// with a placeholder target, resolved afterward by lowering.ts's
+// resolveWhileWend static bracket-matching pass (build order step 12).
+// Every other Statement kind is handled by an explicit case that throws —
+// the parser doesn't produce them yet (unsupported keywords raise a
+// ParseError before lowering ever runs), so these branches exist purely
+// as a defensive backstop and, together with the final `assertNever`,
+// keep this switch exhaustive: adding a new Statement kind without
+// updating this file becomes a compile-time TS error. Each one gets a
+// real implementation in its own build-order step — see the
+// per-construct rules in CLAUDE.md's "dispatch-loop / virtual-PC emitter"
+// section:
 // - DefFnStmt (step 13).
 
 import type { IfStmt, NextStmt, OnJumpStmt, Statement } from "../ast/statements.js";
-import type { JumpTarget, Step } from "./program.js";
+import { UNRESOLVED_WHILE_WEND, type JumpTarget, type Step } from "./program.js";
 import { assertNever } from "../util/assert-never.js";
 
 /**
@@ -112,7 +113,13 @@ export function lowerStatement(statement: Statement, line: number, ctx: Lowering
       return [{ kind: "Restore", line, target: statement.target }];
 
     case "WhileStmt":
+      return [
+        { kind: "While", line, condition: statement.condition, afterWend: UNRESOLVED_WHILE_WEND },
+      ];
+
     case "WendStmt":
+      return [{ kind: "Wend", line, whileTarget: UNRESOLVED_WHILE_WEND }];
+
     case "DefFnStmt":
       throw new Error(
         `Internal error: lowering for "${statement.kind}" is not implemented yet (line ${line}) — ` +

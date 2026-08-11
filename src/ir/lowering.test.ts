@@ -4,7 +4,7 @@ import { parse } from "../parser/parser.js";
 import { lower } from "./lowering.js";
 import { lowerStatement } from "./lower-statements.js";
 import type { LoweredProgram } from "./program.js";
-import type { WhileStmt } from "../ast/statements.js";
+import type { DefFnStmt } from "../ast/statements.js";
 
 function lowerSource(source: string): LoweredProgram {
   return lower(parse(tokenize(source)));
@@ -50,14 +50,22 @@ describe("lower — statement kinds", () => {
   });
 
   it("throws a clear internal error when asked to lower an unsupported statement kind", () => {
-    // Bypasses the parser (which never produces WhileStmt yet) to exercise
+    // Bypasses the parser (which never produces DefFnStmt yet) to exercise
     // lower-statements.ts's defensive backstop directly.
-    const fakeWhileStmt: WhileStmt = {
-      kind: "WhileStmt",
-      condition: { kind: "NumberLiteral", value: 1 },
+    const fakeDefFnStmt: DefFnStmt = {
+      kind: "DefFnStmt",
+      name: "double",
+      suffix: "",
+      params: [{ name: "x", suffix: "" }],
+      body: {
+        kind: "BinaryExpr",
+        op: "*",
+        left: { kind: "VariableRef", name: "x", suffix: "" },
+        right: { kind: "NumberLiteral", value: 2 },
+      },
     };
     expect(() =>
-      lowerStatement(fakeWhileStmt, 10, { stepIndexOffset: 0, nextLineNumber: undefined }),
+      lowerStatement(fakeDefFnStmt, 10, { stepIndexOffset: 0, nextLineNumber: undefined }),
     ).toThrow(/not implemented yet/);
   });
 });
@@ -371,5 +379,70 @@ describe("lower — DATA/READ/RESTORE", () => {
     expect(lowerSource("10 RESTORE 100").steps).toEqual([
       { kind: "Restore", line: 10, target: 100 },
     ]);
+  });
+});
+
+describe("lower — WHILE/WEND", () => {
+  it("resolves a simple WHILE/WEND pair to matching step-index targets", () => {
+    const { steps } = lowerSource("10 WHILE X < 10\n20 PRINT X\n30 WEND\n40 PRINT 1");
+    // While(0), Print(1), Wend(2), Print(3)
+    expect(steps).toEqual([
+      {
+        kind: "While",
+        line: 10,
+        condition: {
+          kind: "BinaryExpr",
+          op: "<",
+          left: { kind: "VariableRef", name: "x", suffix: "" },
+          right: { kind: "NumberLiteral", value: 10 },
+        },
+        afterWend: { kind: "step", index: 3 },
+      },
+      {
+        kind: "Print",
+        line: 20,
+        segments: [{ kind: "value", expr: { kind: "VariableRef", name: "x", suffix: "" } }],
+      },
+      { kind: "Wend", line: 30, whileTarget: { kind: "step", index: 0 } },
+      {
+        kind: "Print",
+        line: 40,
+        segments: [{ kind: "value", expr: { kind: "NumberLiteral", value: 1 } }],
+      },
+    ]);
+  });
+
+  it("resolves nested WHILE/WEND pairs independently (innermost matches innermost)", () => {
+    const { steps } = lowerSource("10 WHILE X\n20 WHILE Y\n30 WEND\n40 WEND");
+    const outerWhile = steps[0]!;
+    const innerWhile = steps[1]!;
+    const innerWend = steps[2]!;
+    const outerWend = steps[3]!;
+    if (outerWhile.kind !== "While" || innerWhile.kind !== "While")
+      throw new Error("expected While");
+    if (innerWend.kind !== "Wend" || outerWend.kind !== "Wend") throw new Error("expected Wend");
+    expect(innerWhile.afterWend).toEqual({ kind: "step", index: 3 }); // jumps to outer WEND
+    expect(innerWend.whileTarget).toEqual({ kind: "step", index: 1 }); // jumps back to inner WHILE
+    expect(outerWhile.afterWend).toEqual({ kind: "step", index: 4 }); // jumps past everything
+    expect(outerWend.whileTarget).toEqual({ kind: "step", index: 0 }); // jumps back to outer WHILE
+  });
+
+  it("throws a lowering-time error for a WEND with no matching WHILE", () => {
+    expect(() => lowerSource("10 WEND")).toThrow(/WEND without a matching WHILE/);
+  });
+
+  it("throws a lowering-time error for a WHILE with no matching WEND", () => {
+    expect(() => lowerSource("10 WHILE 1\n20 PRINT 1")).toThrow(/WHILE without a matching WEND/);
+  });
+
+  it("matches a WHILE/WEND pair split across an IF branch and the top level", () => {
+    // WHILE/WEND resolution runs over the fully flattened Step[], so a
+    // WHILE nested inside an inline THEN clause still matches a WEND
+    // appearing as an ordinary top-level statement later.
+    const { steps } = lowerSource("10 IF 1 THEN WHILE X: PRINT X\n20 WEND");
+    const whileStep = steps.find((s) => s.kind === "While");
+    const wendStep = steps.find((s) => s.kind === "Wend");
+    expect(whileStep).toBeDefined();
+    expect(wendStep).toBeDefined();
   });
 });

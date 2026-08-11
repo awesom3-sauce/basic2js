@@ -5,11 +5,12 @@
 // REM (via the lexer's Comment token), END, STOP (build order step 2),
 // IF/THEN/ELSE (build order step 6), FOR/NEXT (build order step 7),
 // GOSUB/RETURN/ON...GOTO/ON...GOSUB (build order step 8), INPUT (build
-// order step 9), DIM/array l-values (build order step 10), and
-// DATA/READ/RESTORE (build order step 11). Every other keyword the lexer
-// recognizes (WHILE, DEF — see src/lexer/keywords.ts) currently raises a
-// clear "not implemented yet" ParseError rather than being silently
-// mis-parsed; each lands in its own build-order step (see CLAUDE.md).
+// order step 9), DIM/array l-values (build order step 10),
+// DATA/READ/RESTORE (build order step 11), and WHILE/WEND (build order
+// step 12). Every other keyword the lexer recognizes (DEF — see
+// src/lexer/keywords.ts) currently raises a clear "not implemented yet"
+// ParseError rather than being silently mis-parsed; each lands in its own
+// build-order step (see CLAUDE.md).
 
 import type {
   DataStmt,
@@ -31,6 +32,7 @@ import type {
   ReadStmt,
   RestoreStmt,
   Statement,
+  WhileStmt,
 } from "../ast/statements.js";
 import { parseExpression, parseIndexList } from "./parse-expressions.js";
 import { splitSuffix } from "./identifier.js";
@@ -98,6 +100,11 @@ export function parseStatement(cursor: TokenCursor): Statement {
         return parseReadStmt(cursor);
       case "RESTORE":
         return parseRestoreStmt(cursor);
+      case "WHILE":
+        return parseWhileStmt(cursor);
+      case "WEND":
+        cursor.advance();
+        return { kind: "WendStmt" };
       case "END":
         cursor.advance();
         return { kind: "EndStmt" };
@@ -388,4 +395,19 @@ function parseLineNumberTarget(cursor: TokenCursor, context: string): number {
     );
   }
   return target;
+}
+
+/**
+ * `WHILE cond`. Note: unlike `IF`/`FOR`, `WHILE`'s loop body is NOT
+ * collected here — WHILE/WEND are ordinary standalone statements in the
+ * AST (matching bracket structure entirely absent from the grammar
+ * itself); the matching `WEND` is found later, at lowering time, via
+ * static bracket-matching over the flattened Step[] (see
+ * lower-statements.ts / lowering.ts) — the same reason a mismatched
+ * WHILE/WEND pair is caught at lowering, not here at parse time.
+ */
+function parseWhileStmt(cursor: TokenCursor): WhileStmt {
+  cursor.expect("Keyword", "WHILE");
+  const condition = parseExpression(cursor);
+  return { kind: "WhileStmt", condition };
 }

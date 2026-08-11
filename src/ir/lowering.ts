@@ -34,7 +34,48 @@ export function lower(program: Program): LoweredProgram {
     steps.push(...lowered);
   }
 
-  return { steps, lineToStep, data, dataLineStarts };
+  return { steps: resolveWhileWend(steps), lineToStep, data, dataLineStarts };
+}
+
+/**
+ * Matches every WhileStep to its WendStep (and vice versa) via a stack,
+ * exactly like matching parentheses — this is the "static bracket-matching
+ * at lowering time" CLAUDE.md describes for WHILE/WEND, in contrast to
+ * FOR/NEXT's runtime stack. Runs over the *final* flat Step[], after all
+ * of a line's (and any IF branch's) statements have already been lowered
+ * and flattened — so WHILE/WEND nesting is resolved correctly no matter
+ * which top-level lines or IF branches they're physically split across.
+ * A mismatched pair (extra WEND, or a WHILE with no matching WEND) is a
+ * lowering-time error: it's a structural defect in the program, not
+ * something that depends on runtime data.
+ */
+function resolveWhileWend(steps: readonly Step[]): Step[] {
+  const resolved = [...steps];
+  const openWhileIndices: number[] = [];
+
+  for (let i = 0; i < resolved.length; i++) {
+    const step = resolved[i]!;
+
+    if (step.kind === "While") {
+      openWhileIndices.push(i);
+    } else if (step.kind === "Wend") {
+      const whileIndex = openWhileIndices.pop();
+      if (whileIndex === undefined) {
+        throw new Error(`WEND without a matching WHILE (line ${step.line})`);
+      }
+      const whileStep = resolved[whileIndex]!;
+      if (whileStep.kind !== "While") throw new Error("Internal error: expected a While step");
+      resolved[whileIndex] = { ...whileStep, afterWend: { kind: "step", index: i + 1 } };
+      resolved[i] = { ...step, whileTarget: { kind: "step", index: whileIndex } };
+    }
+  }
+
+  if (openWhileIndices.length > 0) {
+    const unmatched = resolved[openWhileIndices[0]!]!;
+    throw new Error(`WHILE without a matching WEND (line ${unmatched.line})`);
+  }
+
+  return resolved;
 }
 
 /**

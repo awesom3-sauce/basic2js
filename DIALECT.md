@@ -64,7 +64,11 @@ build order progresses. Currently everything is `[ ]` — this is the target spe
   specifically, no return address is pushed for a fallthrough either, so a subsequent stray
   `RETURN` still correctly raises `RETURN WITHOUT GOSUB` rather than jumping somewhere bogus).
 - `WHILE cond` / `WEND` — **statically, lexically nested** (unlike `FOR`/`NEXT`), matched at
-  compile time.
+  compile time: a mismatched pair (a stray `WEND`, or a `WHILE` with no matching `WEND`) is a
+  compile-time error, not a runtime one — it's a structural defect in the program, not something
+  that depends on data. Unlike `FOR`, **`WHILE` _does_ pre-test the condition**: if it's false the
+  very first time control reaches the `WHILE`, the body never runs at all (contrast `FOR I = 1 TO
+0`, whose body runs once regardless — see the `FOR`/`NEXT` entry above).
 - `DIM var(size[, size2]) [, var2(...)...]` — 1D and 2D arrays only in v1 (the parser doesn't
   enforce this; it's a runtime-representation choice, see Open Decisions). `DIM A(N)` allocates
   indices `0..N` (length `N+1`). An array used without an explicit `DIM` defaults to size 10 per

@@ -28,6 +28,8 @@ export type Step =
   | DimStep
   | ReadStep
   | RestoreStep
+  | WhileStep
+  | WendStep
   | NoOpStep
   | HaltStep;
 
@@ -69,6 +71,16 @@ export interface GotoStep extends StepBase {
   readonly kind: "Goto";
   readonly target: JumpTarget;
 }
+
+/**
+ * Placeholder `JumpTarget` for a WhileStep/WendStep's target field at the
+ * moment `lower-statements.ts` first produces it — always replaced with a
+ * real resolved target by `lowering.ts`'s `resolveWhileWend` before
+ * `lower()` returns (see WhileStep). Exported so both files share one
+ * definition of "not resolved yet" rather than each hand-rolling a magic
+ * index.
+ */
+export const UNRESOLVED_WHILE_WEND: JumpTarget = { kind: "step", index: -1 };
 
 /**
  * A conditional branch: jump to `thenTarget` if `condition` is truthy
@@ -198,6 +210,32 @@ export interface ReadStep extends StepBase {
 export interface RestoreStep extends StepBase {
   readonly kind: "Restore";
   readonly target?: number;
+}
+
+/**
+ * `WHILE cond`: tests `cond` each time control reaches here (both on
+ * first entry and after every `WEND` loops back); if truthy, falls
+ * through into the loop body (`stepIndex + 1`, needs no field, same
+ * reasoning as ForStep); if falsy, jumps to `afterWend`. Unlike FOR/NEXT's
+ * runtime `forStack`, WHILE/WEND pairs are matched *statically*, purely at
+ * lowering time (`lowering.ts`'s `resolveWhileWend`) — see DIALECT.md for
+ * why (WHILE/WEND requires strict lexical nesting; FOR/NEXT does not).
+ * `afterWend` starts as an internal placeholder (`UNRESOLVED_WHILE_WEND`)
+ * when first lowered from a `WhileStmt` and is always replaced with a real
+ * `{ kind: "step" }` target by `resolveWhileWend` before `lower()` ever
+ * returns — a mismatched WHILE/WEND is a lowering-time (compile) error,
+ * not something that can reach the emitter.
+ */
+export interface WhileStep extends StepBase {
+  readonly kind: "While";
+  readonly condition: Expression;
+  readonly afterWend: JumpTarget;
+}
+
+/** `WEND`: unconditionally jumps back to its matching WhileStep (re-testing the condition). See WhileStep. */
+export interface WendStep extends StepBase {
+  readonly kind: "Wend";
+  readonly whileTarget: JumpTarget;
 }
 
 /** REM/`'` comments: no runtime effect, just falls through to the next step. */

@@ -258,8 +258,8 @@ describe("parse — lines and program structure", () => {
 
 describe("parse — not-yet-implemented statements", () => {
   it("raises a clear error for a keyword without parser support yet", () => {
-    expect(() => parseSource("10 WHILE 1")).toThrow(ParseError);
-    expect(() => parseSource("10 WHILE 1")).toThrow(/not implemented yet/);
+    expect(() => parseSource("10 DEF FNA(X) = X * 2")).toThrow(ParseError);
+    expect(() => parseSource("10 DEF FNA(X) = X * 2")).toThrow(/not implemented yet/);
   });
 });
 
@@ -650,5 +650,32 @@ describe("parse — DATA/READ/RESTORE", () => {
 
   it("parses RESTORE with a line-number target", () => {
     expect(firstStatement("10 RESTORE 100")).toEqual({ kind: "RestoreStmt", target: 100 });
+  });
+});
+
+describe("parse — WHILE/WEND", () => {
+  it("parses WHILE with a condition", () => {
+    expect(firstStatement("10 WHILE X < 10")).toEqual({
+      kind: "WhileStmt",
+      condition: {
+        kind: "BinaryExpr",
+        op: "<",
+        left: { kind: "VariableRef", name: "x", suffix: "" },
+        right: { kind: "NumberLiteral", value: 10 },
+      },
+    });
+  });
+
+  it("parses WEND", () => {
+    expect(firstStatement("10 WEND")).toEqual({ kind: "WendStmt" });
+  });
+
+  it("does not collect the loop body at parse time (unlike IF/FOR)", () => {
+    // WHILE/WEND are ordinary standalone statements — the body is
+    // whatever comes between them at the top level, matched later at
+    // lowering time, not nested inside the AST node itself.
+    const statements = firstLineStatements("10 WHILE X < 10");
+    expect(statements).toHaveLength(1);
+    expect(Object.keys(statements[0]!)).toEqual(["kind", "condition"]);
   });
 });

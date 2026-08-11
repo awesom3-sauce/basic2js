@@ -336,4 +336,17 @@ GOSUB`) before formal tests were written, same workflow as step 7.
   both filled in (were placeholders) — `bubble-sort`/`fizzbuzz`/`temp-converter` had already
   unblocked the array/FOR-based ones early, so only `guess-number` (needs `RND`, step 14) remains.
 
-Next: step 12, `WHILE`/`WEND`.
+- Step 12 (`WHILE`/`WEND`) — the one construct so far whose target isn't knowable at the moment
+  it's lowered: a `WHILE`'s "jump past the loop" target depends on where its matching `WEND` ends
+  up, which may be many lines later and not yet lowered. Solved with a two-phase approach: `WhileStmt`/
+  `WendStmt` lower through the normal `lowerStatement` flow like everything else (so they interleave
+  correctly with `IF` branches, colon-separated statements, etc., for free) into steps carrying a
+  shared `UNRESOLVED_WHILE_WEND` placeholder target; a new `resolveWhileWend` pass in `lowering.ts`
+  then walks the _fully flattened_ `Step[]` once more with a stack, matching pairs like parentheses
+  and patching in real `{ kind: "step" }` targets — by construction this also correctly matches a
+  `WHILE`/`WEND` pair that ends up split across an `IF` branch and the top level, with zero special
+  -casing, since it only cares about the final flat sequence, not how it was assembled. A mismatched
+  pair throws during lowering — a genuine compile-time error for a structural defect, not a runtime
+  one. Confirmed by direct experimentation that `WHILE` (unlike `FOR`) _does_ pre-test its condition.
+
+Next: step 13, `DEF FN`.

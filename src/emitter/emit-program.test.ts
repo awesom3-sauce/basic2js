@@ -601,3 +601,53 @@ describe("emit — DATA/READ/RESTORE", () => {
     expect(rt.errors[0]?.message).toMatch(/RESTORE: no DATA at line 20/);
   });
 });
+
+describe("emit — WHILE/WEND", () => {
+  it("loops while the condition is truthy", async () => {
+    const rt = await runBasic(
+      '10 LET I = 1\n20 WHILE I <= 3\n30 PRINT I\n40 LET I = I + 1\n50 WEND\n60 PRINT "DONE"',
+    );
+    expect(rt.output).toBe(" 1 \n 2 \n 3 \nDONE\n");
+  });
+
+  it("pre-tests the condition: the body never runs if it's false from the start (unlike FOR)", async () => {
+    const rt = await runBasic(
+      '10 LET I = 5\n20 WHILE I <= 3\n30 PRINT I\n40 WEND\n50 PRINT "DONE"',
+    );
+    expect(rt.output).toBe("DONE\n");
+  });
+
+  it("supports properly nested WHILE loops", async () => {
+    const rt = await runBasic(
+      [
+        "10 LET I = 1",
+        "20 WHILE I <= 2",
+        "30 LET J = 1",
+        "40 WHILE J <= 2",
+        "50 PRINT I; J",
+        "60 LET J = J + 1",
+        "70 WEND",
+        "80 LET I = I + 1",
+        "90 WEND",
+      ].join("\n"),
+    );
+    expect(rt.output).toBe(" 1  1 \n 1  2 \n 2  1 \n 2  2 \n");
+  });
+
+  it("supports WHILE/WEND split across an inline IF/THEN branch and the top level", async () => {
+    const rt = await runBasic(
+      '10 IF 1 = 1 THEN LET I = 1: WHILE I <= 2: PRINT I: LET I = I + 1: WEND\n20 PRINT "AFTER"',
+    );
+    expect(rt.output).toBe(" 1 \n 2 \nAFTER\n");
+  });
+
+  it("rejects a WEND with no matching WHILE at compile time", async () => {
+    await expect(runBasic("10 WEND")).rejects.toThrow(/WEND without a matching WHILE/);
+  });
+
+  it("rejects a WHILE with no matching WEND at compile time", async () => {
+    await expect(runBasic("10 WHILE 1\n20 PRINT 1")).rejects.toThrow(
+      /WHILE without a matching WEND/,
+    );
+  });
+});
