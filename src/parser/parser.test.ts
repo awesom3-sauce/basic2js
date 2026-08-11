@@ -258,8 +258,8 @@ describe("parse — lines and program structure", () => {
 
 describe("parse — not-yet-implemented statements", () => {
   it("raises a clear error for a keyword without parser support yet", () => {
-    expect(() => parseSource("10 GOSUB 100")).toThrow(ParseError);
-    expect(() => parseSource("10 GOSUB 100")).toThrow(/not implemented yet/);
+    expect(() => parseSource("10 WHILE 1")).toThrow(ParseError);
+    expect(() => parseSource("10 WHILE 1")).toThrow(/not implemented yet/);
   });
 });
 
@@ -464,5 +464,37 @@ describe("parse — comparisons and logical operators", () => {
       },
       right: { kind: "VariableRef", name: "c", suffix: "" },
     });
+  });
+});
+
+describe("parse — GOSUB/RETURN/ON", () => {
+  it("parses GOSUB with a line-number target", () => {
+    expect(firstStatement("10 GOSUB 100")).toEqual({ kind: "GosubStmt", target: 100 });
+  });
+
+  it("parses RETURN", () => {
+    expect(firstStatement("10 RETURN")).toEqual({ kind: "ReturnStmt" });
+  });
+
+  it("parses ON <expr> GOTO with multiple targets", () => {
+    expect(firstStatement("10 ON N GOTO 100, 200, 300")).toEqual({
+      kind: "OnJumpStmt",
+      mode: "goto",
+      selector: { kind: "VariableRef", name: "n", suffix: "" },
+      targets: [100, 200, 300],
+    });
+  });
+
+  it("parses ON <expr> GOSUB with multiple targets", () => {
+    expect(firstStatement("10 ON N GOSUB 100, 200")).toEqual({
+      kind: "OnJumpStmt",
+      mode: "gosub",
+      selector: { kind: "VariableRef", name: "n", suffix: "" },
+      targets: [100, 200],
+    });
+  });
+
+  it("rejects ON <expr> without a following GOTO or GOSUB", () => {
+    expect(() => parseSource("10 ON N PRINT 1")).toThrow(ParseError);
   });
 });

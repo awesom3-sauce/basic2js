@@ -4,7 +4,7 @@ import { parse } from "../parser/parser.js";
 import { lower } from "./lowering.js";
 import { lowerStatement } from "./lower-statements.js";
 import type { LoweredProgram } from "./program.js";
-import type { GosubStmt } from "../ast/statements.js";
+import type { WhileStmt } from "../ast/statements.js";
 
 function lowerSource(source: string): LoweredProgram {
   return lower(parse(tokenize(source)));
@@ -50,12 +50,51 @@ describe("lower — statement kinds", () => {
   });
 
   it("throws a clear internal error when asked to lower an unsupported statement kind", () => {
-    // Bypasses the parser (which never produces GosubStmt yet) to exercise
+    // Bypasses the parser (which never produces WhileStmt yet) to exercise
     // lower-statements.ts's defensive backstop directly.
-    const fakeGosubStmt: GosubStmt = { kind: "GosubStmt", target: 100 };
+    const fakeWhileStmt: WhileStmt = {
+      kind: "WhileStmt",
+      condition: { kind: "NumberLiteral", value: 1 },
+    };
     expect(() =>
-      lowerStatement(fakeGosubStmt, 10, { stepIndexOffset: 0, nextLineNumber: undefined }),
+      lowerStatement(fakeWhileStmt, 10, { stepIndexOffset: 0, nextLineNumber: undefined }),
     ).toThrow(/not implemented yet/);
+  });
+});
+
+describe("lower — GOSUB/RETURN/ON", () => {
+  it("lowers GOSUB into a Gosub step carrying the raw, unresolved target line number", () => {
+    const { steps } = lowerSource("10 GOSUB 100");
+    expect(steps).toEqual([{ kind: "Gosub", line: 10, target: { kind: "line", line: 100 } }]);
+  });
+
+  it("lowers RETURN into a Return step", () => {
+    const { steps } = lowerSource("10 RETURN");
+    expect(steps).toEqual([{ kind: "Return", line: 10 }]);
+  });
+
+  it("lowers ON...GOTO into a single OnJump step with resolved-later line targets", () => {
+    const { steps } = lowerSource("10 ON N GOTO 100, 200, 300");
+    expect(steps).toEqual([
+      {
+        kind: "OnJump",
+        line: 10,
+        mode: "goto",
+        selector: { kind: "VariableRef", name: "n", suffix: "" },
+        targets: [
+          { kind: "line", line: 100 },
+          { kind: "line", line: 200 },
+          { kind: "line", line: 300 },
+        ],
+      },
+    ]);
+  });
+
+  it("lowers ON...GOSUB with mode preserved", () => {
+    const { steps } = lowerSource("10 ON N GOSUB 100, 200");
+    const step = steps[0]!;
+    if (step.kind !== "OnJump") throw new Error("expected OnJump step");
+    expect(step.mode).toBe("gosub");
   });
 });
 

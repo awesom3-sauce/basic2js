@@ -25,6 +25,7 @@ export async function run(rt) {
   const V = {};
   const ARR = {};
   const forStack = [];
+  const gosubStack = [];
   let pc = 0;
   let __line = 0;
   try {

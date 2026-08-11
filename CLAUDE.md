@@ -273,4 +273,17 @@ the relevant step above — that's the intended landing spot for each piece of r
   old value for the bound). `fizzbuzz`'s golden program was rewritten to use real `FOR`/`NEXT`
   instead of its step-6 GOTO/IF workaround, with identical output confirming both approaches agree.
 
-Next: step 8, `GOSUB`/`RETURN`, `ON GOTO`/`ON GOSUB`.
+- Step 8 (`GOSUB`/`RETURN`, `ON GOTO`/`ON GOSUB`) — mirrors `FOR`'s "no explicit body-start field
+  needed" trick: `GosubStep`'s return address is always `stepIndex + 1`, computed at emission time
+  rather than stored. A runtime `gosubStack` (parallel to `forStack`) lives in `run()`'s closure;
+  `__return` (a new prelude helper) pops it and throws `RETURN WITHOUT GOSUB` on empty. `OnJumpStep`
+  reuses `JumpTarget`/`emitJumpTarget` for each of its targets and a small `__onJumpTarget` prelude
+  helper (truncate-and-1-index, returning `null` for out-of-range) to decide the destination;
+  `ON...GOTO` vs. `ON...GOSUB` is a compile-time branch in the emitter (whether to also push a
+  return address), not a runtime one — and critically, an out-of-range `ON...GOSUB` selector pushes
+  nothing at all, so a stray subsequent `RETURN` still correctly errors instead of jumping somewhere
+  bogus (verified with a dedicated test). All of this validated first via a throwaway smoke script
+  (nested GOSUB, `ON...GOTO`/`ON...GOSUB` with in-range and out-of-range selectors, `RETURN WITHOUT
+GOSUB`) before formal tests were written, same workflow as step 7.
+
+Next: step 9, `INPUT` (async suspension) + readline-based `NodeRuntime` input.

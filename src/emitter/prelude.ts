@@ -36,4 +36,16 @@ function __nextFor(V, forStack, variable, fallthroughPc) {
   }
   return fallthroughPc;
 }
+function __return(gosubStack) {
+  var pc = gosubStack.pop();
+  if (pc === undefined) {
+    throw new Error("RETURN WITHOUT GOSUB");
+  }
+  return pc;
+}
+function __onJumpTarget(selector, targets) {
+  var n = Math.trunc(selector);
+  if (n < 1 || n > targets.length) return null;
+  return targets[n - 1];
+}
 `.trim();

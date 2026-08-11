@@ -10,11 +10,12 @@
 // which kinds happen to need locals staying that way forever.
 //
 // Implemented: Print, Let, Goto, NoOp, Halt (build order step 4), If
-// (build order step 6), and For/Next (build order step 7) — exactly the
-// Step kinds lowering currently produces (see src/ir/program.ts). INPUT
-// (step 9) will be the only Step kind whose case body contains an `await`
-// beyond the print calls emitted here (`rt.print` is always awaited too,
-// for host symmetry — see src/runtime/interface.ts).
+// (build order step 6), For/Next (build order step 7), and
+// Gosub/Return/OnJump (build order step 8) — exactly the Step kinds
+// lowering currently produces (see src/ir/program.ts). INPUT (step 9)
+// will be the only Step kind whose case body contains an `await` beyond
+// the print calls emitted here (`rt.print` is always awaited too, for
+// host symmetry — see src/runtime/interface.ts).
 
 import type { Step } from "../ir/program.js";
 import { emitExpression } from "./emit-expressions.js";
@@ -71,6 +72,30 @@ function emitStepBody(step: Step, stepIndex: number): string {
     case "Next": {
       const variable = step.variable === undefined ? "null" : JSON.stringify(step.variable);
       return `pc = __nextFor(V, forStack, ${variable}, ${stepIndex + 1}); break;`;
+    }
+
+    case "Gosub":
+      return `gosubStack.push(${stepIndex + 1}); pc = ${emitJumpTarget(step.target)}; break;`;
+
+    case "Return":
+      return "pc = __return(gosubStack); break;";
+
+    case "OnJump": {
+      const targets = `[${step.targets.map(emitJumpTarget).join(", ")}]`;
+      const fallthroughPc = stepIndex + 1;
+      const selectTarget = `__onJumpTarget(${emitExpression(step.selector)}, ${targets})`;
+      if (step.mode === "goto") {
+        return `pc = ${selectTarget} ?? ${fallthroughPc}; break;`;
+      }
+      // ON...GOSUB: only push a return address if a target actually
+      // matched — an out-of-range selector falls through without ever
+      // "calling" anywhere, so nothing should be pushed for it either.
+      return (
+        `const __target = ${selectTarget}; ` +
+        `if (__target === null) { pc = ${fallthroughPc}; } ` +
+        `else { gosubStack.push(${fallthroughPc}); pc = __target; } ` +
+        `break;`
+      );
     }
 
     case "NoOp":

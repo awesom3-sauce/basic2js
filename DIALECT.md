@@ -52,9 +52,14 @@ build order progresses. Currently everything is `[ ]` — this is the target spe
   still runs the body once — only `NEXT` ever checks whether to continue (a well-known classic-BASIC
   quirk, not a bug). A multi-variable `NEXT I, J` is treated as shorthand for separate consecutive
   `NEXT I` / `NEXT J` statements (see Open Decisions).
-- `GOTO line-number`, `GOSUB line-number` / `RETURN`.
-- `ON expr GOTO line1, line2, ...` / `ON expr GOSUB line1, line2, ...` — 1-indexed selector. See
-  Open Decisions for out-of-range behavior (locked default: silent fallthrough, no error).
+- `GOTO line-number`, `GOSUB line-number` / `RETURN` — `GOSUB` pushes a return address (the step
+  right after the `GOSUB`) onto a runtime call stack; `RETURN` pops and jumps there. `RETURN` with
+  an empty stack is a `RETURN WITHOUT GOSUB` runtime error.
+- `ON expr GOTO line1, line2, ...` / `ON expr GOSUB line1, line2, ...` — `expr` is truncated to an
+  integer `n` and jumps to (or, for `GOSUB`, calls) the `n`-th target, 1-indexed. See Open Decisions
+  for out-of-range behavior (locked default: silent fallthrough, no error — and for `ON...GOSUB`
+  specifically, no return address is pushed for a fallthrough either, so a subsequent stray
+  `RETURN` still correctly raises `RETURN WITHOUT GOSUB` rather than jumping somewhere bogus).
 - `WHILE cond` / `WEND` — **statically, lexically nested** (unlike `FOR`/`NEXT`), matched at
   compile time.
 - `DIM var(size[, size2]) [, var2(...)...]` — 1D and 2D arrays only in v1. `DIM A(N)` allocates

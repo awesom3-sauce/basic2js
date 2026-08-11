@@ -3,20 +3,23 @@
 //
 // Implemented: PRINT, LET (explicit `LET` and implicit assignment), GOTO,
 // REM (via the lexer's Comment token), END, STOP (build order step 2),
-// IF/THEN/ELSE (build order step 6), and FOR/NEXT (build order step 7).
-// Every other keyword the lexer recognizes (GOSUB, ON, WHILE, DIM, DATA,
-// READ, RESTORE, DEF, INPUT — see src/lexer/keywords.ts) currently raises
-// a clear "not implemented yet" ParseError rather than being silently
-// mis-parsed; each lands in its own build-order step (see CLAUDE.md).
+// IF/THEN/ELSE (build order step 6), FOR/NEXT (build order step 7), and
+// GOSUB/RETURN/ON...GOTO/ON...GOSUB (build order step 8). Every other
+// keyword the lexer recognizes (WHILE, DIM, DATA, READ, RESTORE, DEF,
+// INPUT — see src/lexer/keywords.ts) currently raises a clear "not
+// implemented yet" ParseError rather than being silently mis-parsed; each
+// lands in its own build-order step (see CLAUDE.md).
 
 import type {
   ForStmt,
+  GosubStmt,
   GotoStmt,
   IfBranch,
   IfStmt,
   LetStmt,
   LValue,
   NextStmt,
+  OnJumpStmt,
   PrintSegment,
   PrintStmt,
   Statement,
@@ -70,6 +73,13 @@ export function parseStatement(cursor: TokenCursor): Statement {
         return parseForStmt(cursor);
       case "NEXT":
         return parseNextStmt(cursor);
+      case "GOSUB":
+        return parseGosubStmt(cursor);
+      case "RETURN":
+        cursor.advance();
+        return { kind: "ReturnStmt" };
+      case "ON":
+        return parseOnJumpStmt(cursor);
       case "END":
         cursor.advance();
         return { kind: "EndStmt" };
@@ -214,6 +224,38 @@ function parseNextStmt(cursor: TokenCursor): NextStmt {
     }
   }
   return { kind: "NextStmt", variables };
+}
+
+function parseGosubStmt(cursor: TokenCursor): GosubStmt {
+  cursor.expect("Keyword", "GOSUB");
+  return { kind: "GosubStmt", target: parseLineNumberTarget(cursor, "GOSUB") };
+}
+
+/** `ON expr GOTO line1, line2, ...` / `ON expr GOSUB line1, line2, ...`. */
+function parseOnJumpStmt(cursor: TokenCursor): OnJumpStmt {
+  cursor.expect("Keyword", "ON");
+  const selector = parseExpression(cursor);
+
+  let mode: "goto" | "gosub";
+  if (cursor.match("Keyword", "GOTO")) {
+    mode = "goto";
+  } else if (cursor.match("Keyword", "GOSUB")) {
+    mode = "gosub";
+  } else {
+    const token = cursor.current();
+    throw new ParseError(
+      `Expected "GOTO" or "GOSUB" after "ON <expr>", found "${token.text}"`,
+      token.line,
+      token.col,
+    );
+  }
+
+  const targets: number[] = [];
+  for (;;) {
+    targets.push(parseLineNumberTarget(cursor, "ON"));
+    if (!cursor.match("Operator", ",")) break;
+  }
+  return { kind: "OnJumpStmt", mode, selector, targets };
 }
 
 function parseLineNumberTarget(cursor: TokenCursor, context: string): number {

@@ -3,10 +3,10 @@
 // CLAUDE.md's "dispatch-loop / virtual-PC emitter" section.
 //
 // Step has one variant per statement kind the parser supports so far
-// (Print/Let/Goto/If/For/Next/NoOp/Halt) — control-flow constructs land
-// their own Step kind(s) as each build-order step implements them, since
-// their bodies/branches need their own addressable pc slots and (for
-// FOR/GOSUB, steps 7-8) runtime-stack bookkeeping the source Statement
+// (Print/Let/Goto/If/For/Next/Gosub/Return/OnJump/NoOp/Halt) —
+// control-flow constructs land their own Step kind(s) as each build-order
+// step implements them, since their bodies/branches need their own
+// addressable pc slots and runtime-stack bookkeeping the source Statement
 // shape doesn't carry. Unlike the AST/keyword tables, this union is
 // deliberately NOT pre-designed for those yet (see lower-statements.ts).
 
@@ -15,7 +15,17 @@ import type { LValue, PrintSegment } from "../ast/statements.js";
 import type { TypeSuffix } from "../ast/types.js";
 
 export type Step =
-  PrintStep | LetStep | GotoStep | IfStep | ForStep | NextStep | NoOpStep | HaltStep;
+  | PrintStep
+  | LetStep
+  | GotoStep
+  | IfStep
+  | ForStep
+  | NextStep
+  | GosubStep
+  | ReturnStep
+  | OnJumpStep
+  | NoOpStep
+  | HaltStep;
 
 interface StepBase {
   /** The originating BASIC line number (Line.lineNumber, not a physical source row), for runtime error messages. */
@@ -102,6 +112,37 @@ export interface ForStep extends StepBase {
 export interface NextStep extends StepBase {
   readonly kind: "Next";
   readonly variable: string | undefined;
+}
+
+/**
+ * GOSUB: pushes a return address onto a runtime `gosubStack` and jumps to
+ * `target`. Like ForStep's body-start, the return address needs no field
+ * here — it's always `stepIndex + 1`, computable at emission time.
+ */
+export interface GosubStep extends StepBase {
+  readonly kind: "Gosub";
+  readonly target: JumpTarget;
+}
+
+/**
+ * RETURN: pops `gosubStack` and jumps to the popped address. An empty
+ * stack is a `RETURN WITHOUT GOSUB` runtime error.
+ */
+export interface ReturnStep extends StepBase {
+  readonly kind: "Return";
+}
+
+/**
+ * `ON expr GOTO/GOSUB line1, line2, ...`: truncates `selector` to an
+ * integer `n` and jumps to `targets[n-1]` (1-indexed). An out-of-range
+ * `n` (< 1 or > targets.length) falls through to the next step with no
+ * error — the locked default, see DIALECT.md.
+ */
+export interface OnJumpStep extends StepBase {
+  readonly kind: "OnJump";
+  readonly mode: "goto" | "gosub";
+  readonly selector: Expression;
+  readonly targets: readonly JumpTarget[];
 }
 
 /** REM/`'` comments: no runtime effect, just falls through to the next step. */

@@ -336,3 +336,99 @@ describe("emit — FOR/NEXT", () => {
     expect(rt.output).toBe(" 1 \n 2 \n 3 \n 4 \n 5 \nDONE\n");
   });
 });
+
+describe("emit — GOSUB/RETURN", () => {
+  it("jumps to the subroutine and returns to the statement right after the GOSUB", async () => {
+    const rt = await runBasic(
+      '10 GOSUB 100\n20 PRINT "BACK"\n30 END\n100 PRINT "IN SUB"\n110 RETURN',
+    );
+    expect(rt.output).toBe("IN SUB\nBACK\n");
+  });
+
+  it("supports nested GOSUB calls, returning in the correct (LIFO) order", async () => {
+    const rt = await runBasic(
+      [
+        "10 GOSUB 100",
+        '20 PRINT "DONE"',
+        "30 END",
+        '100 PRINT "A"',
+        "110 GOSUB 200",
+        '120 PRINT "B"',
+        "130 RETURN",
+        '200 PRINT "C"',
+        "210 RETURN",
+      ].join("\n"),
+    );
+    expect(rt.output).toBe("A\nC\nB\nDONE\n");
+  });
+
+  it("raises RETURN WITHOUT GOSUB when the stack is empty", async () => {
+    const rt = await runBasic("10 RETURN");
+    expect(rt.output).toBe("");
+    expect(rt.errors).toHaveLength(1);
+    expect(rt.errors[0]?.message).toMatch(/RETURN WITHOUT GOSUB/);
+  });
+
+  it("supports GOSUB inside a loop, returning to resume the loop correctly", async () => {
+    const rt = await runBasic(
+      [
+        "10 FOR I = 1 TO 3",
+        "20 GOSUB 100",
+        "30 NEXT I",
+        "40 END",
+        "100 PRINT I",
+        "110 RETURN",
+      ].join("\n"),
+    );
+    expect(rt.output).toBe(" 1 \n 2 \n 3 \n");
+  });
+});
+
+describe("emit — ON...GOTO / ON...GOSUB", () => {
+  it("jumps to the nth target for a matching selector (1-indexed)", async () => {
+    const rt = await runBasic(
+      '10 N = 2\n20 ON N GOTO 100, 200, 300\n30 END\n100 PRINT "ONE": END\n200 PRINT "TWO": END\n300 PRINT "THREE": END',
+    );
+    expect(rt.output).toBe("TWO\n");
+  });
+
+  it("falls through with no error when the selector is out of range", async () => {
+    const rt = await runBasic(
+      '10 N = 5\n20 ON N GOTO 100, 200\n30 PRINT "FALLTHROUGH"\n40 END\n100 PRINT "ONE"\n200 PRINT "TWO"',
+    );
+    expect(rt.output).toBe("FALLTHROUGH\n");
+    expect(rt.errors).toHaveLength(0);
+  });
+
+  it("falls through with no error when the selector is less than 1", async () => {
+    const rt = await runBasic(
+      '10 N = 0\n20 ON N GOTO 100\n30 PRINT "FALLTHROUGH"\n40 END\n100 PRINT "ONE"',
+    );
+    expect(rt.output).toBe("FALLTHROUGH\n");
+  });
+
+  it("calls the nth target as a subroutine for ON...GOSUB, returning correctly", async () => {
+    const rt = await runBasic(
+      [
+        "10 FOR N = 1 TO 2",
+        "20 ON N GOSUB 100, 200",
+        '30 PRINT "AFTER"; N',
+        "40 NEXT N",
+        "50 END",
+        '100 PRINT "SUB1"',
+        "110 RETURN",
+        '200 PRINT "SUB2"',
+        "210 RETURN",
+      ].join("\n"),
+    );
+    expect(rt.output).toBe("SUB1\nAFTER 1 \nSUB2\nAFTER 2 \n");
+  });
+
+  it("pushes no return address for an out-of-range ON...GOSUB selector", async () => {
+    // If a return address were wrongly pushed, this RETURN would succeed
+    // and jump somewhere bogus instead of raising RETURN WITHOUT GOSUB.
+    const rt = await runBasic('10 N = 99\n20 ON N GOSUB 100\n30 PRINT "AFTER"\n40 END\n100 RETURN');
+    expect(rt.output).toBe("AFTER\n");
+    expect(rt.errors).toHaveLength(0);
+  });
+});

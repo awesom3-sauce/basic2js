@@ -5,18 +5,17 @@
 // order step 6) lowers into an IfStep plus its branches' recursively
 // lowered sub-steps (see lowerIfStmt below); ForStmt lowers 1:1 into a
 // ForStep, and NextStmt lowers into one NextStep per named variable (or a
-// single bare NextStep if no variables were given — build order step 7).
-// Every other Statement kind is handled by an explicit case that throws —
-// the parser doesn't produce them yet (unsupported keywords raise a
-// ParseError before lowering ever runs), so these branches exist purely
-// as a defensive backstop and, together with the final `assertNever`,
-// keep this switch exhaustive: adding a new Statement kind without
-// updating this file becomes a compile-time TS error. Each one gets a
-// real implementation in its own build-order step — see the per-construct
-// rules in CLAUDE.md's "dispatch-loop / virtual-PC emitter" section:
-// - GosubStmt/ReturnStmt/OnJumpStmt (step 8): runtime gosubStack of return
-//   step-indices; ON...GOTO/GOSUB out-of-range selector falls through with
-//   no error (locked default, see DIALECT.md).
+// single bare NextStep if no variables were given — build order step 7);
+// GosubStmt/ReturnStmt/OnJumpStmt each lower 1:1 into a single Step (build
+// order step 8). Every other Statement kind is handled by an explicit
+// case that throws — the parser doesn't produce them yet (unsupported
+// keywords raise a ParseError before lowering ever runs), so these
+// branches exist purely as a defensive backstop and, together with the
+// final `assertNever`, keep this switch exhaustive: adding a new
+// Statement kind without updating this file becomes a compile-time TS
+// error. Each one gets a real implementation in its own build-order step
+// — see the per-construct rules in CLAUDE.md's "dispatch-loop /
+// virtual-PC emitter" section:
 // - InputStmt (step 9).
 // - DimStmt (step 10).
 // - DataStmt/ReadStmt/RestoreStmt (step 11): DATA is collected in a
@@ -26,7 +25,7 @@
 //   lowering time, unlike FOR/NEXT's runtime stack.
 // - DefFnStmt (step 13).
 
-import type { IfStmt, NextStmt, Statement } from "../ast/statements.js";
+import type { IfStmt, NextStmt, OnJumpStmt, Statement } from "../ast/statements.js";
 import type { JumpTarget, Step } from "./program.js";
 import { assertNever } from "../util/assert-never.js";
 
@@ -80,10 +79,16 @@ export function lowerStatement(statement: Statement, line: number, ctx: Lowering
     case "NextStmt":
       return lowerNextStmt(statement, line);
 
-    case "InputStmt":
     case "GosubStmt":
+      return [{ kind: "Gosub", line, target: { kind: "line", line: statement.target } }];
+
     case "ReturnStmt":
+      return [{ kind: "Return", line }];
+
     case "OnJumpStmt":
+      return [lowerOnJumpStmt(statement, line)];
+
+    case "InputStmt":
     case "WhileStmt":
     case "WendStmt":
     case "DimStmt":
@@ -194,4 +199,14 @@ function lowerNextStmt(stmt: NextStmt, line: number): Step[] {
     return [{ kind: "Next", line, variable: undefined }];
   }
   return stmt.variables.map((variable) => ({ kind: "Next", line, variable }) as Step);
+}
+
+function lowerOnJumpStmt(stmt: OnJumpStmt, line: number): Step {
+  return {
+    kind: "OnJump",
+    line,
+    mode: stmt.mode,
+    selector: stmt.selector,
+    targets: stmt.targets.map((target): JumpTarget => ({ kind: "line", line: target })),
+  };
 }
