@@ -29,6 +29,7 @@ const KEYWORDS: ReadonlySet<string> = new Set([
   "RESTORE",
   "DEF",
   "FN",
+  "RANDOMIZE",
   "REM",
   "END",
   "STOP",

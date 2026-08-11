@@ -4,14 +4,10 @@
 // in a `default: return assertNever(node);` case — see
 // src/util/assert-never.ts and CLAUDE.md's exhaustiveness convention.
 //
-// Parser support status (build order step 2, "minimal parser subset"):
-// PrintStmt, LetStmt (explicit `LET` and implicit assignment), GotoStmt,
-// RemStmt, EndStmt, and StopStmt are implemented — see
-// src/parser/parse-statements.ts. Every other variant below is defined now
-// as a type only (cheap, and gives later steps — 6 through 13 — a stable
-// shape to parse into) with no parser support yet; parsing an unsupported
-// statement keyword currently raises a clear "not implemented yet"
-// ParseError rather than silently mis-parsing.
+// Parser support status: every variant below has real parser support as of
+// build order step 14 — see src/parser/parse-statements.ts's header comment
+// for the step each landed in. `RandomizeStmt` (step 14) was the last one
+// added.
 
 import type { Expression } from "./expressions.js";
 import type { TypeSuffix } from "./types.js";
@@ -34,6 +30,7 @@ export type Statement =
   | ReadStmt
   | RestoreStmt
   | DefFnStmt
+  | RandomizeStmt
   | RemStmt
   | EndStmt
   | StopStmt;
@@ -65,7 +62,17 @@ export interface PrintStmt {
 
 export type PrintSegment =
   | { readonly kind: "value"; readonly expr: Expression }
-  | { readonly kind: "sep"; readonly sep: ";" | "," };
+  | { readonly kind: "sep"; readonly sep: ";" | "," }
+  /**
+   * `TAB(col)` — pads with spaces so the next segment starts at column
+   * `col` (1-indexed), or contributes nothing if already at/past that
+   * column (build order step 14). Recognized only in PRINT's segment
+   * list, not as a general expression — matches real classic BASIC, which
+   * restricts TAB/SPC to PRINT argument position. See parsePrintStmt.
+   */
+  | { readonly kind: "tab"; readonly expr: Expression }
+  /** `SPC(n)` — always contributes exactly `n` literal spaces (build order step 14). */
+  | { readonly kind: "spc"; readonly expr: Expression };
 
 // --- INPUT (step 9) ---
 
@@ -201,6 +208,21 @@ export interface DefFnStmt {
 export interface DefFnParam {
   readonly name: string;
   readonly suffix: TypeSuffix;
+}
+
+// --- RANDOMIZE (step 14) ---
+
+/**
+ * `RANDOMIZE seed` — reseeds the runtime's PRNG so subsequent `RND` calls
+ * are deterministic (see src/runtime/shared/random.ts). Unlike real
+ * GW-BASIC, `seed` is required in v1 — a bare `RANDOMIZE` with no argument
+ * (which prompts "Random Number Seed" interactively on real hardware)
+ * isn't supported, since this compiler targets non-interactive/scripted
+ * execution first. See DIALECT.md's Open Decisions.
+ */
+export interface RandomizeStmt {
+  readonly kind: "RandomizeStmt";
+  readonly seed: Expression;
 }
 
 // --- Misc ---

@@ -3,11 +3,17 @@
 // (tests/golden/golden.test.ts) — see CLAUDE.md's "runtime host contract".
 
 import type { BasicRuntime } from "../../src/runtime/interface.js";
+import { SeedableRandom } from "../../src/runtime/shared/random.js";
 
 export class TestRuntime implements BasicRuntime {
   readonly printed: string[] = [];
   readonly errors: Error[] = [];
   private readonly scriptedInput: string[];
+  // Fixed default seed (unlike NodeRuntime's wall-clock default) — an
+  // accidentally-unseeded test should fail the same way every run, not
+  // flake. Tests exercising RND for real should still call RANDOMIZE
+  // explicitly (see DIALECT.md's Open Decisions), same as any golden test.
+  private readonly rng = new SeedableRandom(1);
 
   constructor(scriptedInput: readonly string[] = []) {
     this.scriptedInput = [...scriptedInput];
@@ -27,11 +33,11 @@ export class TestRuntime implements BasicRuntime {
   }
 
   random(): number {
-    return Math.random();
+    return this.rng.next();
   }
 
-  seedRandom(_seed: number): void {
-    // No-op until build order step 14 wires up a real seedable PRNG.
+  seedRandom(seed: number): void {
+    this.rng.seed(seed);
   }
 
   reportError(error: Error): void {

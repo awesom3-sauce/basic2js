@@ -2,23 +2,25 @@
 // see precedence.ts for the binding-power table.
 //
 // Implemented: number/string literals, variable references (with suffix),
-// array references (build order step 10), unary `-`/`NOT`, parenthesized
-// grouping, and the full binary operator set (arithmetic, comparisons,
-// AND/OR — build order step 6).
+// array references (build order step 10), builtin function calls (build
+// order step 14), unary `-`/`NOT`, parenthesized grouping, and the full
+// binary operator set (arithmetic, comparisons, AND/OR — build order
+// step 6).
 //
-// An identifier immediately followed by `(` is always parsed as an
-// ArrayRef (never a CallExpr) — correct for now, since builtin functions
-// (step 14) don't exist yet to create ambiguity. `FN name(args)` (build
-// order step 13) is unambiguous by construction instead of needing
-// disambiguation: it's always preceded by the `FN` keyword (see
-// parseDefFnStmt's scope note in parse-statements.ts on why a space
-// between `FN` and the name is required), so it's recognized as its own
-// CallExpr case in parsePrimary below, never confused with ArrayRef.
-// Builtin functions (LEFT$, INT, ...) will still need real disambiguation
-// once step 14 lands, since they have no such keyword prefix — a concrete
-// TODO for that step, not resolved here.
+// `FN name(args)` (build order step 13) is unambiguous by construction:
+// it's always preceded by the `FN` keyword (see parseDefFnStmt's scope
+// note in parse-statements.ts on why a space between `FN` and the name is
+// required), so it's recognized as its own CallExpr case in parsePrimary
+// below, never confused with ArrayRef.
+//
+// A bare (non-FN-prefixed) `identifier(` is disambiguated against
+// `builtins.ts`'s BUILTIN_FUNCTIONS table: a name+suffix that matches a
+// known builtin parses as a CallExpr (with an arity check against the same
+// table); anything else parses as an ArrayRef, as before. See builtins.ts's
+// header comment for the "only reserved in call position" scope decision.
 
 import type { Expression } from "../ast/expressions.js";
+import { lookupBuiltin } from "./builtins.js";
 import { splitSuffix } from "./identifier.js";
 import { lookupBinaryOp, UNARY_MINUS_PRECEDENCE, UNARY_NOT_PRECEDENCE } from "./precedence.js";
 import { numberValue, stringValue } from "./token-value.js";
@@ -72,6 +74,19 @@ function parsePrimary(cursor: TokenCursor): Expression {
     cursor.advance();
     const { name, suffix } = splitSuffix(stringValue(token));
     if (cursor.check("Operator", "(")) {
+      const calleeKey = name + suffix;
+      const builtin = lookupBuiltin(calleeKey);
+      if (builtin !== undefined) {
+        const args = parseIndexList(cursor);
+        if (args.length < builtin.min || args.length > builtin.max) {
+          throw new ParseError(
+            `${calleeKey.toUpperCase()} expects ${describeArity(builtin)}, got ${args.length}`,
+            token.line,
+            token.col,
+          );
+        }
+        return { kind: "CallExpr", callee: calleeKey, args };
+      }
       return { kind: "ArrayRef", name, suffix, indices: parseIndexList(cursor) };
     }
     return { kind: "VariableRef", name, suffix };
@@ -99,6 +114,13 @@ function parsePrimary(cursor: TokenCursor): Expression {
     token.line,
     token.col,
   );
+}
+
+function describeArity(builtin: { readonly min: number; readonly max: number }): string {
+  if (builtin.min === builtin.max) {
+    return `${builtin.min} argument${builtin.min === 1 ? "" : "s"}`;
+  }
+  return `${builtin.min} to ${builtin.max} arguments`;
 }
 
 /**

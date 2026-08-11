@@ -470,3 +470,12 @@ describe("lower — DEF FN", () => {
     expect(fnDefs.has("d")).toBe(true);
   });
 });
+
+describe("lower — RANDOMIZE", () => {
+  it("lowers RANDOMIZE 1:1 into a Randomize step", () => {
+    const { steps } = lowerSource("10 RANDOMIZE 42");
+    expect(steps).toEqual([
+      { kind: "Randomize", line: 10, seed: { kind: "NumberLiteral", value: 42 } },
+    ]);
+  });
+});

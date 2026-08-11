@@ -1,17 +1,18 @@
 // Statement parsing — one parse function per Statement kind, dispatched by
 // the leading token in parseStatement().
 //
-// Implemented: PRINT, LET (explicit `LET` and implicit assignment), GOTO,
-// REM (via the lexer's Comment token), END, STOP (build order step 2),
-// IF/THEN/ELSE (build order step 6), FOR/NEXT (build order step 7),
-// GOSUB/RETURN/ON...GOTO/ON...GOSUB (build order step 8), INPUT (build
-// order step 9), DIM/array l-values (build order step 10),
-// DATA/READ/RESTORE (build order step 11), WHILE/WEND (build order step
-// 12), and DEF FN (build order step 13, see parseDefFnStmt for a scope
-// note on the "FN A" vs. "FNA" spelling). Every other keyword the lexer
-// recognizes currently raises a clear "not implemented yet" ParseError
-// rather than being silently mis-parsed; each lands in its own build-order
-// step (see CLAUDE.md).
+// Implemented: PRINT (including TAB()/SPC() segments as of step 14), LET
+// (explicit `LET` and implicit assignment), GOTO, REM (via the lexer's
+// Comment token), END, STOP (build order step 2), IF/THEN/ELSE (build order
+// step 6), FOR/NEXT (build order step 7), GOSUB/RETURN/ON...GOTO/ON...GOSUB
+// (build order step 8), INPUT (build order step 9), DIM/array l-values
+// (build order step 10), DATA/READ/RESTORE (build order step 11),
+// WHILE/WEND (build order step 12), DEF FN (build order step 13, see
+// parseDefFnStmt for a scope note on the "FN A" vs. "FNA" spelling), and
+// RANDOMIZE (build order step 14). Builtin function calls (LEN, LEFT$, ...)
+// aren't statements — see parse-expressions.ts/builtins.ts instead. Every
+// keyword the lexer still doesn't recognize as a statement raises a clear
+// "not implemented yet" ParseError rather than being silently mis-parsed.
 
 import type {
   DataStmt,
@@ -32,6 +33,7 @@ import type {
   OnJumpStmt,
   PrintSegment,
   PrintStmt,
+  RandomizeStmt,
   ReadStmt,
   RestoreStmt,
   Statement,
@@ -110,6 +112,8 @@ export function parseStatement(cursor: TokenCursor): Statement {
         return { kind: "WendStmt" };
       case "DEF":
         return parseDefFnStmt(cursor);
+      case "RANDOMIZE":
+        return parseRandomizeStmt(cursor);
       case "END":
         cursor.advance();
         return { kind: "EndStmt" };
@@ -157,11 +161,47 @@ function parsePrintStmt(cursor: TokenCursor): PrintStmt {
       );
     }
 
+    const tabOrSpc = tryParseTabOrSpc(cursor);
+    if (tabOrSpc !== undefined) {
+      segments.push(tabOrSpc);
+      atValueBoundary = true;
+      continue;
+    }
+
     segments.push({ kind: "value", expr: parseExpression(cursor) });
     atValueBoundary = true;
   }
 
   return { kind: "PrintStmt", segments };
+}
+
+/**
+ * Recognizes `TAB(expr)`/`SPC(expr)` at the cursor's current position, only
+ * when the identifier is immediately followed by `(` — real classic BASIC
+ * restricts TAB/SPC to PRINT's argument list (see PrintSegment's doc
+ * comment in ast/statements.ts), unlike the general builtin-function
+ * registry in builtins.ts, so they're recognized here rather than through
+ * the normal expression-level CallExpr path. Returns undefined (consuming
+ * nothing) if the cursor isn't at one of these two forms, so the caller can
+ * fall through to ordinary value-expression parsing.
+ */
+function tryParseTabOrSpc(cursor: TokenCursor): PrintSegment | undefined {
+  const isTab = cursor.check("Identifier", "tab");
+  const isSpc = cursor.check("Identifier", "spc");
+  if (!isTab && !isSpc) return undefined;
+  const next = cursor.peek(1);
+  if (next.type !== "Operator" || next.text !== "(") return undefined;
+
+  const token = cursor.advance(); // consume "tab"/"spc"
+  const args = parseIndexList(cursor);
+  if (args.length !== 1) {
+    throw new ParseError(
+      `${isTab ? "TAB" : "SPC"} expects 1 argument, got ${args.length}`,
+      token.line,
+      token.col,
+    );
+  }
+  return { kind: isTab ? "tab" : "spc", expr: args[0]! };
 }
 
 function parseLetStmt(cursor: TokenCursor, options: { explicit: boolean }): LetStmt {
@@ -452,4 +492,14 @@ function parseDefFnStmt(cursor: TokenCursor): DefFnStmt {
   const body = parseExpression(cursor);
 
   return { kind: "DefFnStmt", name, suffix, params, body };
+}
+
+/**
+ * `RANDOMIZE seed`. See RandomizeStmt's doc comment (ast/statements.ts) for
+ * why `seed` is required in v1, unlike real GW-BASIC's optional argument.
+ */
+function parseRandomizeStmt(cursor: TokenCursor): RandomizeStmt {
+  cursor.expect("Keyword", "RANDOMIZE");
+  const seed = parseExpression(cursor);
+  return { kind: "RandomizeStmt", seed };
 }

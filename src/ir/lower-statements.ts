@@ -15,7 +15,8 @@
 // since neither is executable in the sequential sense (build order steps
 // 11/13); WhileStmt/WendStmt each lower 1:1 into a single Step with a
 // placeholder target, resolved afterward by lowering.ts's
-// resolveWhileWend static bracket-matching pass (build order step 12).
+// resolveWhileWend static bracket-matching pass (build order step 12);
+// RandomizeStmt lowers 1:1 into a RandomizeStep (build order step 14).
 // This switch is otherwise exhaustive (backed by the final `assertNever`)
 // — adding a new Statement kind without updating this file becomes a
 // compile-time TS error.
@@ -116,6 +117,9 @@ export function lowerStatement(statement: Statement, line: number, ctx: Lowering
 
     case "DefFnStmt":
       return []; // Non-executable; collected in lowering.ts's pre-pass instead.
+
+    case "RandomizeStmt":
+      return [{ kind: "Randomize", line, seed: statement.seed }];
 
     default:
       return assertNever(statement, "lowerStatement");

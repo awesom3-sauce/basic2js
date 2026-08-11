@@ -689,3 +689,139 @@ describe("emit — DEF FN", () => {
     expect(rt.output).toBe(" 7 \n");
   });
 });
+
+describe("emit — string builtins", () => {
+  it("LEFT$/RIGHT$/MID$ extract substrings", async () => {
+    const rt = await runBasic(
+      '10 A$ = "HELLO WORLD"\n' +
+        "20 PRINT LEFT$(A$, 5)\n" +
+        "30 PRINT RIGHT$(A$, 5)\n" +
+        "40 PRINT MID$(A$, 7)\n" +
+        "50 PRINT MID$(A$, 1, 5)\n" +
+        "60 END",
+    );
+    expect(rt.output).toBe("HELLO\nWORLD\nWORLD\nHELLO\n");
+  });
+
+  it("LEFT$/RIGHT$ clamp n beyond the string's length instead of erroring", async () => {
+    const rt = await runBasic('10 PRINT LEFT$("HI", 10)\n20 PRINT RIGHT$("HI", 10)\n30 END');
+    expect(rt.output).toBe("HI\nHI\n");
+  });
+
+  it("LEN returns a string's character count", async () => {
+    const rt = await runBasic('10 PRINT LEN("HELLO")\n20 PRINT LEN("")\n30 END');
+    expect(rt.output).toBe(" 5 \n 0 \n");
+  });
+
+  it("CHR$/ASC round-trip a character code", async () => {
+    const rt = await runBasic('10 PRINT CHR$(65)\n20 PRINT ASC("A")\n30 END');
+    expect(rt.output).toBe("A\n 65 \n");
+  });
+
+  it("ASC on an empty string is a runtime error", async () => {
+    const rt = await runBasic('10 PRINT ASC("")\n20 END');
+    expect(rt.errors).toHaveLength(1);
+    expect(rt.errors[0]?.message).toMatch(/ASC of an empty string/);
+  });
+
+  it("STR$ prepends a leading space for non-negative numbers, no trailing space", async () => {
+    const rt = await runBasic("10 PRINT STR$(5)\n20 PRINT STR$(-5)\n30 END");
+    expect(rt.output).toBe(" 5\n-5\n");
+  });
+
+  it("VAL parses a leading numeric prefix, ignoring surrounding whitespace and trailing junk", async () => {
+    const rt = await runBasic('10 PRINT VAL("  42.5xyz")\n20 END');
+    expect(rt.output).toBe(" 42.5 \n");
+  });
+
+  it("VAL on malformed input (no leading digits) returns 0", async () => {
+    const rt = await runBasic('10 PRINT VAL("nope")\n20 END');
+    expect(rt.output).toBe(" 0 \n");
+  });
+
+  it("INSTR finds a substring's 1-indexed position, or 0 if not found", async () => {
+    const rt = await runBasic(
+      '10 PRINT INSTR("HELLO WORLD", "WORLD")\n20 PRINT INSTR("HELLO WORLD", "ZZZ")\n30 END',
+    );
+    expect(rt.output).toBe(" 7 \n 0 \n");
+  });
+
+  it("INSTR with an explicit start argument searches from that position", async () => {
+    const rt = await runBasic('10 PRINT INSTR(3, "AAAA", "A")\n20 END');
+    expect(rt.output).toBe(" 3 \n");
+  });
+});
+
+describe("emit — math builtins", () => {
+  it("INT floors (distinct from %-suffix rounding)", async () => {
+    const rt = await runBasic("10 PRINT INT(3.7)\n20 PRINT INT(-3.7)\n30 END");
+    expect(rt.output).toBe(" 3 \n-4 \n");
+  });
+
+  it("ABS/SQR/SGN compute their usual math results", async () => {
+    const rt = await runBasic(
+      "10 PRINT ABS(-5)\n20 PRINT SQR(16)\n30 PRINT SGN(-3)\n40 PRINT SGN(0)\n50 PRINT SGN(3)\n60 END",
+    );
+    expect(rt.output).toBe(" 5 \n 4 \n-1 \n 0 \n 1 \n");
+  });
+
+  it("SQR of a negative number is a runtime error", async () => {
+    const rt = await runBasic("10 PRINT SQR(-1)\n20 END");
+    expect(rt.errors).toHaveLength(1);
+    expect(rt.errors[0]?.message).toMatch(/SQR of a negative number/);
+  });
+
+  it("SIN/COS/TAN compute their usual trig results", async () => {
+    const rt = await runBasic("10 PRINT SIN(0)\n20 PRINT COS(0)\n30 PRINT TAN(0)\n40 END");
+    expect(rt.output).toBe(" 0 \n 1 \n 0 \n");
+  });
+});
+
+describe("emit — RND/RANDOMIZE", () => {
+  it("RANDOMIZE with the same seed produces the same RND sequence", async () => {
+    const program = "10 RANDOMIZE 7\n20 PRINT RND(1)\n30 PRINT RND(1)\n40 END";
+    const first = await runBasic(program);
+    const second = await runBasic(program);
+    expect(first.output).toBe(second.output);
+  });
+
+  it("RANDOMIZE with different seeds produces different RND sequences", async () => {
+    const a = await runBasic("10 RANDOMIZE 1\n20 PRINT RND(1)\n30 END");
+    const b = await runBasic("10 RANDOMIZE 2\n20 PRINT RND(1)\n30 END");
+    expect(a.output).not.toBe(b.output);
+  });
+
+  it("RND produces a value in [0, 1)", async () => {
+    const rt = await runBasic(
+      "10 RANDOMIZE 1\n20 LET X = RND(1)\n30 PRINT X >= 0 AND X < 1\n40 END",
+    );
+    expect(rt.output).toBe("-1 \n"); // BASIC TRUE
+  });
+});
+
+describe("emit — PRINT TAB()/SPC()", () => {
+  it("TAB(col) pads to the given column", async () => {
+    const rt = await runBasic('10 PRINT "A"; TAB(10); "B"\n20 END');
+    expect(rt.output).toBe("A        B\n");
+    expect(rt.output.indexOf("B")).toBe(9); // column 10, 0-indexed
+  });
+
+  it("TAB(col) contributes nothing if already at/past that column", async () => {
+    const rt = await runBasic('10 PRINT "HELLO WORLD"; TAB(3); "X"\n20 END');
+    expect(rt.output).toBe("HELLO WORLDX\n");
+  });
+
+  it("SPC(n) always contributes exactly n spaces", async () => {
+    const rt = await runBasic('10 PRINT "X"; SPC(3); "Y"\n20 END');
+    expect(rt.output).toBe("X   Y\n");
+  });
+});
+
+describe("emit — builtin/array name interaction", () => {
+  it("a non-builtin identifier still works as an array, unaffected by the builtin registry", async () => {
+    const rt = await runBasic(
+      '10 DIM CUSTOM(5)\n20 CUSTOM(2) = 99\n30 PRINT CUSTOM(2)\n40 PRINT LEN("HI")\n50 END',
+    );
+    expect(rt.output).toBe(" 99 \n 2 \n");
+  });
+});

@@ -1,15 +1,16 @@
 // Expression -> JS source-text emission.
 //
 // Implemented: NumberLiteral, StringLiteral, VariableRef, ArrayRef (build
-// order step 10), CallExpr (a `DEF FN` call — build order step 13), unary
-// "-"/"NOT", and the full BinOp set — arithmetic (+ - * / \ ^ MOD, build
-// order step 4) plus comparisons and AND/OR (build order step 6) —
-// exactly the Expression shapes the parser currently produces (see
-// src/parser/parse-expressions.ts). Builtin function calls (LEFT$, INT,
-// ...) will also become CallExpr once step 14 lands, at which point this
-// file's CallExpr case needs to distinguish "call a DEF FN" from "call a
-// builtin" — not needed yet, since the parser doesn't produce a CallExpr
-// for anything but an `FN name(...)` call until then.
+// order step 10), CallExpr (either a `DEF FN` call, build order step 13, or
+// a builtin call like LEFT$/INT, build order step 14), unary "-"/"NOT", and
+// the full BinOp set — arithmetic (+ - * / \ ^ MOD, build order step 4)
+// plus comparisons and AND/OR (build order step 6) — exactly the
+// Expression shapes the parser currently produces (see
+// src/parser/parse-expressions.ts). CallExpr distinguishes "call a
+// builtin" from "call a DEF FN" by checking `expr.callee` against
+// runtime-calls.ts's RUNTIME_CALLS table first (see its own doc comment
+// for why that's unambiguous), falling back to `FN[...]` for anything not
+// in that table.
 //
 // Every composite sub-expression (UnaryExpr, BinaryExpr) is emitted fully
 // parenthesized, so nesting composes safely regardless of JS's own
@@ -41,6 +42,7 @@
 
 import type { BinOp, Expression, UnaryOp } from "../ast/expressions.js";
 import { mangleParamName, varKey } from "./mangle.js";
+import { RUNTIME_CALLS } from "./runtime-calls.js";
 import { assertNever } from "../util/assert-never.js";
 
 const NO_LOCALS: ReadonlySet<string> = new Set();
@@ -72,8 +74,16 @@ export function emitExpression(expr: Expression, locals: ReadonlySet<string> = N
     }
 
     case "CallExpr": {
-      const args = expr.args.map((a) => emitExpression(a, locals)).join(", ");
-      return `FN[${JSON.stringify(expr.callee)}](${args})`;
+      const args = expr.args.map((a) => emitExpression(a, locals));
+      // The parser only ever produces a bare (non-`FN`-prefixed) CallExpr
+      // for a name matching builtins.ts's registry, and only ever produces
+      // an `FN`-prefixed one for an arbitrary DEF FN name — so checking
+      // the builtin registry here unambiguously recovers which case this
+      // is, with no extra discriminant needed on the node itself (see
+      // CallExpr's doc comment in ast/expressions.ts).
+      const emitBuiltin = RUNTIME_CALLS.get(expr.callee);
+      if (emitBuiltin !== undefined) return emitBuiltin(args);
+      return `FN[${JSON.stringify(expr.callee)}](${args.join(", ")})`;
     }
 
     default:

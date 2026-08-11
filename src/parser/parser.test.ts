@@ -754,3 +754,141 @@ describe("parse — DEF FN", () => {
     });
   });
 });
+
+describe("parse — builtin function calls", () => {
+  it("parses a builtin call as a CallExpr, not an ArrayRef", () => {
+    expect(letValue('10 LET Y = LEN("HI")')).toEqual({
+      kind: "CallExpr",
+      callee: "len",
+      args: [{ kind: "StringLiteral", value: "HI" }],
+    });
+  });
+
+  it("keeps the $ suffix as part of the callee spelling", () => {
+    expect(letValue('10 LET Y = LEFT$("HI", 1)')).toEqual({
+      kind: "CallExpr",
+      callee: "left$",
+      args: [
+        { kind: "StringLiteral", value: "HI" },
+        { kind: "NumberLiteral", value: 1 },
+      ],
+    });
+  });
+
+  it("parses MID$ with the optional length argument omitted", () => {
+    expect(letValue('10 LET Y = MID$("HI", 1)')).toEqual({
+      kind: "CallExpr",
+      callee: "mid$",
+      args: [
+        { kind: "StringLiteral", value: "HI" },
+        { kind: "NumberLiteral", value: 1 },
+      ],
+    });
+  });
+
+  it("parses INSTR with and without the optional leading start argument", () => {
+    expect(letValue('10 LET Y = INSTR("HI", "I")')).toEqual({
+      kind: "CallExpr",
+      callee: "instr",
+      args: [
+        { kind: "StringLiteral", value: "HI" },
+        { kind: "StringLiteral", value: "I" },
+      ],
+    });
+    expect(letValue('10 LET Y = INSTR(2, "HI", "I")')).toEqual({
+      kind: "CallExpr",
+      callee: "instr",
+      args: [
+        { kind: "NumberLiteral", value: 2 },
+        { kind: "StringLiteral", value: "HI" },
+        { kind: "StringLiteral", value: "I" },
+      ],
+    });
+  });
+
+  it("still parses a non-builtin identifier(args) as an ArrayRef", () => {
+    expect(letValue("10 LET Y = CUSTOM(1)")).toEqual({
+      kind: "ArrayRef",
+      name: "custom",
+      suffix: "",
+      indices: [{ kind: "NumberLiteral", value: 1 }],
+    });
+  });
+
+  it("rejects a builtin call with too few arguments", () => {
+    expect(() => parseSource('10 PRINT LEFT$("X")')).toThrow(/LEFT\$ expects 2 arguments, got 1/);
+  });
+
+  it("rejects a builtin call with too many arguments", () => {
+    expect(() => parseSource('10 PRINT LEN("X", "Y")')).toThrow(/LEN expects 1 argument, got 2/);
+  });
+
+  it("accepts INSTR with either 2 or 3 arguments, rejecting 1 or 4", () => {
+    expect(() => parseSource('10 PRINT INSTR("X")')).toThrow(
+      /INSTR expects 2 to 3 arguments, got 1/,
+    );
+    expect(() => parseSource('10 PRINT INSTR(1, "X", "Y", "Z")')).toThrow(
+      /INSTR expects 2 to 3 arguments, got 4/,
+    );
+  });
+});
+
+describe("parse — RANDOMIZE", () => {
+  it("parses RANDOMIZE with a seed expression", () => {
+    expect(firstStatement("10 RANDOMIZE 42")).toEqual({
+      kind: "RandomizeStmt",
+      seed: { kind: "NumberLiteral", value: 42 },
+    });
+  });
+
+  it("parses RANDOMIZE with an arbitrary expression seed", () => {
+    expect(firstStatement("10 RANDOMIZE T + 1")).toEqual({
+      kind: "RandomizeStmt",
+      seed: {
+        kind: "BinaryExpr",
+        op: "+",
+        left: { kind: "VariableRef", name: "t", suffix: "" },
+        right: { kind: "NumberLiteral", value: 1 },
+      },
+    });
+  });
+});
+
+describe("parse — PRINT TAB()/SPC()", () => {
+  it("parses TAB(expr) as a tab segment", () => {
+    const statements = firstLineStatements('10 PRINT "A"; TAB(10); "B"');
+    expect(statements).toEqual([
+      {
+        kind: "PrintStmt",
+        segments: [
+          { kind: "value", expr: { kind: "StringLiteral", value: "A" } },
+          { kind: "sep", sep: ";" },
+          { kind: "tab", expr: { kind: "NumberLiteral", value: 10 } },
+          { kind: "sep", sep: ";" },
+          { kind: "value", expr: { kind: "StringLiteral", value: "B" } },
+        ],
+      },
+    ]);
+  });
+
+  it("parses SPC(expr) as a spc segment", () => {
+    const statements = firstLineStatements("10 PRINT SPC(3)");
+    expect(statements).toEqual([
+      { kind: "PrintStmt", segments: [{ kind: "spc", expr: { kind: "NumberLiteral", value: 3 } }] },
+    ]);
+  });
+
+  it("treats a bare TAB/SPC with no following ( as an ordinary variable", () => {
+    const statements = firstLineStatements("10 PRINT TAB");
+    expect(statements).toEqual([
+      {
+        kind: "PrintStmt",
+        segments: [{ kind: "value", expr: { kind: "VariableRef", name: "tab", suffix: "" } }],
+      },
+    ]);
+  });
+
+  it("rejects TAB() with the wrong argument count", () => {
+    expect(() => parseSource("10 PRINT TAB(1, 2)")).toThrow(/TAB expects 1 argument, got 2/);
+  });
+});

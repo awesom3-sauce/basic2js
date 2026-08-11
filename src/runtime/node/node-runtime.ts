@@ -1,8 +1,8 @@
 // Node.js implementation of BasicRuntime — backs the CLI's `run` command.
 //
-// Scope note: print/reportError (step 5) and input (step 9) are real;
-// random/seedRandom are placeholders until step 14 gives them something to
-// do.
+// Scope note: print/reportError (step 5), input (step 9), and
+// random/seedRandom (step 14, backed by SeedableRandom — see
+// runtime/shared/random.ts) are all real now.
 //
 // input() deliberately does NOT use readline/promises' high-level
 // `.question()`, despite that being the obvious API for this. Verified by
@@ -20,10 +20,15 @@
 
 import * as readline from "node:readline";
 import type { BasicRuntime } from "../interface.js";
+import { SeedableRandom } from "../shared/random.js";
 
 export class NodeRuntime implements BasicRuntime {
   private rl: readline.Interface | undefined;
   private lines: AsyncIterator<string> | undefined;
+  // Unseeded default (wall-clock-derived, see SeedableRandom) — matches
+  // real BASIC's "unseeded RND still varies run to run" behavior. Call
+  // RANDOMIZE for deterministic output.
+  private readonly rng = new SeedableRandom();
 
   print(text: string): void {
     process.stdout.write(text);
@@ -43,12 +48,11 @@ export class NodeRuntime implements BasicRuntime {
   }
 
   random(): number {
-    return Math.random();
+    return this.rng.next();
   }
 
-  seedRandom(_seed: number): void {
-    // TODO (build order step 14): wire up the seedable PRNG in
-    // src/runtime/shared/random.ts so RANDOMIZE <n> is deterministic.
+  seedRandom(seed: number): void {
+    this.rng.seed(seed);
   }
 
   reportError(error: Error): void {

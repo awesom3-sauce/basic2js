@@ -190,7 +190,7 @@ the scaffolding plan (git history); summary:
 Every `src/**` file not yet reached by this build order is a stub with a `TODO` comment pointing at
 the relevant step above — that's the intended landing spot for each piece of real implementation.
 
-**Progress**: steps 1–13 are implemented.
+**Progress**: steps 1–14 are implemented.
 
 - Step 1 (minimal lexer) — `src/lexer/{token,keywords,lex-error,lexer}.ts` + colocated `lexer.test.ts`.
   It's dialect-complete on the keyword/operator table (a lookup table costs nothing to fill in
@@ -389,4 +389,64 @@ GOSUB`) before formal tests were written, same workflow as step 7.
   unimplemented across steps 7–13: `FOR` → `GOSUB` → `WHILE` → `DEF`) were removed rather than
   re-targeted again, replaced with a comment explaining why.
 
-Next: step 14, the full builtin function library.
+- Step 14 (full builtin function library) — the parser's `identifier(` ArrayRef-vs-call ambiguity
+  (flagged as a TODO back in step 10) is resolved by a new `src/parser/builtins.ts` name/arity
+  registry: a bare (non-`FN`-prefixed) `identifier(` matching a registry entry parses as a
+  `CallExpr` with an arity check right there at parse time (so `LEFT$("X")` fails immediately with
+  a clear "LEFT$ expects 2 arguments, got 1" `ParseError`, never a runtime surprise); anything else
+  still parses as `ArrayRef`, unchanged. Builtin names are deliberately reserved **only in call
+  position** (see DIALECT.md's Open Decisions) — a bare identifier with the same spelling and no
+  following `(` is still an ordinary variable, keeping the change scoped to the existing decision
+  point instead of requiring a symbol-table pass. Emission reuses the exact same "which case is
+  this" trick step 13 already established for `CallExpr` (an emitted `FN[key](...)` vs. something
+  else): a new `src/emitter/runtime-calls.ts` RUNTIME_CALLS table (name → JS-emission function) is
+  checked first; a match means "builtin", anything else falls back to `FN[...]`. A
+  `runtime-calls.test.ts` asserts `RUNTIME_CALLS`'s keys exactly match `builtins.ts`'s, so a new
+  builtin can't be added to the parser's registry and forgotten in the emitter's (or vice versa).
+
+  `TAB(col)`/`SPC(n)` are handled entirely differently from the other builtins: real classic BASIC
+  restricts them to PRINT's argument list (not general expressions), so they're recognized by a
+  dedicated `tryParseTabOrSpc` check inside `parsePrintStmt` itself (two new `PrintSegment` kinds,
+  `"tab"`/`"spc"`) rather than going through `builtins.ts`/`CallExpr` at all — consistent with real
+  BASIC's own scoping, and avoids reserving those two names globally for zero benefit.
+
+  Most builtins route through a new `__`-prefixed PRELUDE helper (`__left`/`__right`/`__mid`/
+  `__chr`/`__asc`/`__str`/`__val`/`__instr`/`__sqr`/`__sgn`/`__tabTo`/`__spc`), following the exact
+  established pattern from every prior step's control-flow/array/DATA helpers; `INT`/`ABS`/`SIN`/
+  `COS`/`TAN` are simple enough to emit a bare `Math.*` call directly, no helper needed. `RND` is
+  the one builtin that reaches outside pure JS, emitting `rt.random()` directly — real entropy has
+  to come from the host, not from stateless emitted code, mirroring how `INPUT` already needed the
+  host for user input. This meant `RANDOMIZE seed` also needed to become a real statement in this
+  step (not originally itemized in the build-order title, but required for `RND` to be testable at
+  all — `src/runtime/interface.ts`'s `seedRandom`/`random` were declared back in step 5 explicitly
+  for this): a new `RandomizeStmt`/`RandomizeStep`, lowering/emitting through the exact same
+  pattern as every other single-step statement, calling the synchronous `rt.seedRandom(seed)`.
+  `src/runtime/shared/random.ts` gained a real mulberry32-based `SeedableRandom`, shared by
+  `NodeRuntime` (wall-clock-seeded by default) and `TestRuntime` (fixed-seed by default, so an
+  accidentally-unseeded test fails the same way every run instead of flaking) — the one
+  `runtime/shared/*.ts` file that actually needed real logic, since RND/RANDOMIZE genuinely route
+  through the `BasicRuntime` host interface. `strings.ts`/`math.ts`/`formatting.ts` deliberately
+  stayed stubs: their builtins are pure and stateless, needed by nothing outside emitted code, so a
+  second TS copy of logic that's really only ever expressed once (in PRELUDE) would just be a
+  duplication/drift risk with no payoff — their header comments now say so explicitly rather than
+  leaving a stale "TODO, unimplemented" impression.
+
+  **Real bug found and fixed** (caught by direct smoke-testing before formal tests, not by
+  reasoning about it in advance): `VAL("  42.5xyz")` was returning `0` instead of `42.5`. Root
+  cause: PRELUDE is itself one big JS template literal (`prelude.ts`'s `export const PRELUDE =
+\`...\``), so a regex pattern written with plain single backslashes (`\d`, `\.`) inside that
+template literal gets its backslashes silently eaten by prelude.ts's own template-literal
+parsing before the text ever reaches the emitted PRELUDE string — `\d`arrives in emitted output
+as a bare`d`, matching the literal letter instead of any digit. Fixed by doubling every
+backslash in `__val`'s regex (`\\d`, `\\.`); documented prominently in prelude.ts's header
+  comment as a standing hazard for anyone adding a future regex-based helper here.
+
+  Filled in `tests/golden/programs/guess-number/` (a number-guessing game using `RND`/`RANDOMIZE`
+  and `INT()`, deferred since step 9 pending `RND`) — the last remaining golden-program placeholder
+  (build order step 18's item), so step 18 is now also fully done, incrementally, per its own
+  "not batched at the end" instruction. Its scripted guess sequence was derived by first running
+  the compiled program to reveal the seeded target number, then hand-computing a binary-search
+  guess path to it, then generating `expected.txt` from an actual compiler run (never
+  hand-computed) — same verified-against-the-real-compiler workflow as every other golden program.
+
+Next: step 15, type-suffix enforcement.

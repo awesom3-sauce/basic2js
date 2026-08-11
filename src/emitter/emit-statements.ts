@@ -12,12 +12,13 @@
 // Implemented: Print, Let, Goto, NoOp, Halt (build order step 4), If
 // (build order step 6), For/Next (build order step 7),
 // Gosub/Return/OnJump (build order step 8), Input (build order step 9),
-// Dim (build order step 10), Read/Restore (build order step 11), and
-// While/Wend (build order step 12) — exactly the Step kinds lowering
-// currently produces (see src/ir/program.ts). Input is the only Step kind
-// whose case body contains an `await` beyond the print calls emitted here
-// (`rt.print` is always awaited too, for host symmetry — see
-// src/runtime/interface.ts).
+// Dim (build order step 10), Read/Restore (build order step 11),
+// While/Wend (build order step 12), and Randomize (build order step 14) —
+// exactly the Step kinds lowering currently produces (see
+// src/ir/program.ts). Input is the only Step kind whose case body contains
+// an `await` beyond the print calls emitted here (`rt.print` is always
+// awaited too, for host symmetry — see src/runtime/interface.ts);
+// Randomize calls `rt.seedRandom` synchronously.
 
 import type { Step } from "../ir/program.js";
 import { emitExpression } from "./emit-expressions.js";
@@ -136,6 +137,10 @@ function emitStepBody(step: Step, stepIndex: number): string {
 
     case "Wend":
       return `pc = ${emitJumpTarget(step.whileTarget)}; break;`;
+
+    case "Randomize":
+      // rt.seedRandom is synchronous (see runtime/interface.ts) — no await needed.
+      return `rt.seedRandom(${emitExpression(step.seed)}); pc = ${stepIndex + 1}; break;`;
 
     case "NoOp":
       return `pc = ${stepIndex + 1}; break;`;

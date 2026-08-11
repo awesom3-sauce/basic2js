@@ -6,8 +6,9 @@ structured dialect like QBasic. It is written as a spec-as-built: keep it in syn
 and emitter as each feature lands (see CLAUDE.md's staged build order), and use it as the
 reference when writing golden tests.
 
-Status legend: each section should eventually be marked `[ ]` planned / `[x]` implemented as the
-build order progresses. Currently everything is `[ ]` — this is the target spec, not yet built.
+Status: as of build order step 14, every construct documented below is implemented (see
+CLAUDE.md's "Progress" notes for exactly which build-order step landed each one) — this file
+describes the compiler as it actually behaves today, not a target spec for future work.
 
 ## General syntax rules
 
@@ -78,10 +79,10 @@ build order progresses. Currently everything is `[ ]` — this is the target spe
   with the wrong number of dimensions from how it was DIM'd/first-used, are both a
   `SUBSCRIPT OUT OF RANGE` runtime error. Re-`DIM`ing an already-allocated array silently resets it
   rather than raising GW-BASIC's `Redimensioned array` error (see Open Decisions).
-  `identifier(args)` in an expression is always parsed as an array reference, never a call — a
-  `DEF FN` call is syntactically distinct (always `FN name(args)`, see below) and unambiguous by
-  construction; builtin functions (step 14) will still need real name-based disambiguation against
-  array references sharing the same identifier space.
+  `identifier(args)` in an expression parses as an array reference unless `identifier` matches a
+  known builtin function name (see "Builtin functions" below), in which case it's a call instead —
+  a `DEF FN` call is syntactically distinct from both (always `FN name(args)`, see below) and
+  unambiguous by construction, needing no name lookup at all.
 - `DATA value, value, ...` — non-executable; all `DATA` statements in the program (including any
   nested inside an `IF`/`THEN`/`ELSE` branch) are collected, in source order, into one flat pool
   before execution begins. Each `value` must be a number (optionally negative) or a _quoted_ string
@@ -106,6 +107,11 @@ build order progresses. Currently everything is `[ ]` — this is the target spe
   reads live from the caller's current `V`/`ARR` state at call time — not a value snapshotted when
   `DEF FN` was declared.
 - `END` / `STOP` — halt execution (`pc = -1`).
+- `RANDOMIZE seed` — reseeds the runtime's PRNG (see the RND builtin below) so a subsequent `RND`
+  sequence is deterministic. Unlike real GW-BASIC, `seed` is **required** in v1 — a bare
+  `RANDOMIZE` with no argument (which interactively prompts "Random Number Seed" on real hardware)
+  isn't supported, since this compiler targets non-interactive/scripted execution first. See Open
+  Decisions.
 
 ## Operators
 
@@ -124,17 +130,30 @@ build order progresses. Currently everything is `[ ]` — this is the target spe
   the common case of both operands being 0/-1 (comparison results) this is exactly logical
   AND/OR/NOT; for arbitrary integers it's a true bitwise operation, matching real BASIC.
 
-## Builtin functions (v1 scope)
+## Builtin functions (v1 scope, implemented build order step 14)
 
-**String**: `LEFT$(s, n)`, `RIGHT$(s, n)`, `MID$(s, start[, len])` (omitted `len` = to end of
-string), `LEN(s)`, `CHR$(code)`, `ASC(s)` (error on empty string), `STR$(n)`, `VAL(s)` (parses a
-leading numeric prefix, ignoring surrounding whitespace; malformed input → `0`), `INSTR([start,]
-haystack, needle)` (returns `0`, not `-1`, when not found — BASIC convention, not JS's `indexOf`).
+Every builtin name below is only reserved in **call position** — see Open Decisions — and always
+takes parenthesized arguments, with arity enforced at **parse time** (a wrong argument count is a
+compile-time `ParseError`, e.g. `LEFT$("X")` fails immediately, never a runtime surprise). See
+`src/parser/builtins.ts` for the name/arity registry and `src/emitter/runtime-calls.ts` for the
+name → emitted-JS mapping.
+
+**String**: `LEFT$(s, n)`, `RIGHT$(s, n)` (both clamp `n` beyond the string's own length instead of
+erroring), `MID$(s, start[, len])` (omitted `len` = to end of string), `LEN(s)`, `CHR$(code)`,
+`ASC(s)` (error on empty string), `STR$(n)` (leading space for non-negative numbers, matching
+PRINT's own convention, but **no** trailing space — that's PRINT-specific, not part of `STR$`'s
+output), `VAL(s)` (parses a leading numeric prefix, ignoring surrounding whitespace; malformed
+input → `0`), `INSTR([start,] haystack, needle)` (returns `0`, not `-1`, when not found — BASIC
+convention, not JS's `indexOf`; `start` is 1-indexed like everything else in BASIC).
 
 **Math**: `INT(n)` (floor — distinct from `%`-suffix coercion, which rounds; see Type-suffix
-semantics), `ABS(n)`, `SQR(n)` (error on negative input), `RND[(n)]`, `SGN(n)`, `SIN`/`COS`/`TAN`.
+semantics), `ABS(n)`, `SQR(n)` (error on negative input), `RND(n)` (see Open Decisions for the
+locked simplification around `n`), `SGN(n)`, `SIN`/`COS`/`TAN`.
 
-**PRINT formatting**: `TAB(n)`, `SPC(n)`.
+**PRINT formatting** (recognized only inside `PRINT`'s segment list, not as general expressions —
+see PRINT above and Open Decisions): `TAB(col)` (pads with spaces so the next segment starts at
+column `col`, 1-indexed; contributes nothing if already at/past that column), `SPC(n)` (always
+contributes exactly `n` literal spaces).
 
 ## Type-suffix semantics
 
@@ -168,9 +187,30 @@ revisited explicitly** — if you change one, update this section and any golden
 - **`ON GOTO`/`ON GOSUB` out-of-range selector**: silently falls through to the next statement, no
   error raised (matches GW-BASIC).
 - **`%` overflow**: throws a runtime `OVERFLOW` error. Does **not** silently wrap around.
-- **`RND`/`RANDOMIZE`**: backed by a seedable PRNG (mulberry32 or similar) for deterministic
-  tests. **Not** bit-compatible with any real GW-BASIC RNG sequence — golden tests that use `RND`
-  must call `RANDOMIZE <fixed-seed>` for determinism; do not attempt to match real-hardware output.
+- **`RND`/`RANDOMIZE`**: backed by a seedable PRNG (mulberry32 — see
+  `src/runtime/shared/random.ts`) for deterministic tests. **Not** bit-compatible with any real
+  GW-BASIC RNG sequence — golden tests that use `RND` must call `RANDOMIZE <fixed-seed>` for
+  determinism; do not attempt to match real-hardware output. `RANDOMIZE`'s seed argument is
+  **required** in v1 (see Statements above). `RND(n)` always takes exactly one argument and always
+  draws the next value from the seeded generator, **ignoring** the argument's actual value — real
+  GW-BASIC's `n = 0` ("repeat the last value") and `n < 0` ("reseed from `n`") special cases aren't
+  supported; use `RANDOMIZE` to seed instead. `TestRuntime` defaults to a fixed seed (unlike
+  `NodeRuntime`'s wall-clock default) so an accidentally-unseeded test fails the same way every
+  run instead of flaking — tests that exercise `RND` for real should still call `RANDOMIZE`
+  explicitly, same as any golden test.
+- **Builtin function names are reserved only in call position**: an identifier immediately
+  followed by `(` that matches a builtin's name (e.g. `LEN(`) always resolves to that builtin, but
+  a _bare_ identifier with the same spelling and no following `(` (e.g. `LET LEN = 5`) is still an
+  ordinary variable — real BASIC reserves these names globally, in every position. This keeps the
+  parser change scoped to the existing ArrayRef-vs-CallExpr decision point rather than requiring a
+  symbol-table pass everywhere an identifier can appear. A `DIM`'d array sharing a builtin's name
+  (e.g. `DIM LEN(10)`) is similarly not rejected at parse time; expression-position access with
+  that name resolves to the builtin, not the array — avoid naming arrays after builtin functions.
+  Revisit both if real-world ambiguity turns out to matter.
+- **`TAB`/`SPC` are recognized only inside PRINT's segment list**, not as general expressions —
+  matches real classic BASIC's own restriction. A bare `TAB`/`SPC` with no following `(`, or either
+  name used anywhere outside PRINT, is treated as an ordinary variable (unlike the general builtin
+  registry's reservation, `TAB`/`SPC` aren't in that registry at all — see parsePrintStmt).
 - **`DEFINT`/`DEFSNG`/`DEFDBL`/`DEFSTR`**: out of scope for v1 entirely (not parsed, not
   supported). Revisit if a real-world `.bas` listing needs them.
 - **Array dimensions**: 1D and 2D only in v1. 3D+ is out of scope until a concrete need appears.

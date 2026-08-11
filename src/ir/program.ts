@@ -30,6 +30,7 @@ export type Step =
   | RestoreStep
   | WhileStep
   | WendStep
+  | RandomizeStep
   | NoOpStep
   | HaltStep;
 
@@ -236,6 +237,17 @@ export interface WhileStep extends StepBase {
 export interface WendStep extends StepBase {
   readonly kind: "Wend";
   readonly whileTarget: JumpTarget;
+}
+
+/**
+ * `RANDOMIZE seed`: reseeds the runtime's PRNG (`rt.seedRandom`, a
+ * synchronous host call — see runtime/interface.ts) so subsequent `RND`
+ * calls are deterministic. See RandomizeStmt's doc comment for why `seed`
+ * is required in v1.
+ */
+export interface RandomizeStep extends StepBase {
+  readonly kind: "Randomize";
+  readonly seed: Expression;
 }
 
 /** REM/`'` comments: no runtime effect, just falls through to the next step. */
