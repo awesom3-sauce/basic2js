@@ -1,15 +1,29 @@
 // Node.js implementation of BasicRuntime — backs the CLI's `run` command.
 //
-// Scope note (build order step 5, "minimal NodeRuntime"): print/reportError
-// are real; input/random/seedRandom are placeholders until steps 9/14 give
-// them something to do (the currently-supported PRINT/LET/GOTO subset
-// never calls them).
+// Scope note: print/reportError (step 5) and input (step 9) are real;
+// random/seedRandom are placeholders until step 14 gives them something to
+// do.
+//
+// input() deliberately does NOT use readline/promises' high-level
+// `.question()`, despite that being the obvious API for this. Verified by
+// direct experimentation: when stdin is a non-TTY pipe (`echo "a\nb" |
+// node ...`, or any real usage of `basic2js run program.bas < input.txt`)
+// and both lines of input arrive in the same underlying 'data' event, a
+// SECOND `await rl.question(...)` call never resolves — readline has
+// already internally buffered the second line before the second
+// `.question()`'s listener is registered to receive it. This is a real
+// Node readline/promises gotcha with piped input, not a hypothetical
+// concern, since piping input from a file is an entirely ordinary way to
+// run a BASIC program non-interactively. Driving the plain (non-promises)
+// `readline.Interface` via its async iterator instead reads buffered
+// lines correctly regardless of how many arrived in one underlying chunk.
 
-import * as readline from "node:readline/promises";
+import * as readline from "node:readline";
 import type { BasicRuntime } from "../interface.js";
 
 export class NodeRuntime implements BasicRuntime {
   private rl: readline.Interface | undefined;
+  private lines: AsyncIterator<string> | undefined;
 
   print(text: string): void {
     process.stdout.write(text);
@@ -18,8 +32,14 @@ export class NodeRuntime implements BasicRuntime {
   async input(promptText: string | null): Promise<string> {
     // Lazily created and reused across multiple INPUT statements in one
     // run(), rather than one readline interface per call.
-    this.rl ??= readline.createInterface({ input: process.stdin, output: process.stdout });
-    return this.rl.question(promptText ?? "");
+    if (this.rl === undefined) {
+      this.rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+      this.lines = this.rl[Symbol.asyncIterator]();
+    }
+    if (promptText !== null) process.stdout.write(promptText);
+    // Safe: set together with this.rl just above.
+    const { value, done } = await this.lines!.next();
+    return done ? "" : value;
   }
 
   random(): number {

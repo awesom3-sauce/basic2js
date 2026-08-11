@@ -3,12 +3,13 @@
 //
 // Implemented: PRINT, LET (explicit `LET` and implicit assignment), GOTO,
 // REM (via the lexer's Comment token), END, STOP (build order step 2),
-// IF/THEN/ELSE (build order step 6), FOR/NEXT (build order step 7), and
-// GOSUB/RETURN/ON...GOTO/ON...GOSUB (build order step 8). Every other
-// keyword the lexer recognizes (WHILE, DIM, DATA, READ, RESTORE, DEF,
-// INPUT — see src/lexer/keywords.ts) currently raises a clear "not
-// implemented yet" ParseError rather than being silently mis-parsed; each
-// lands in its own build-order step (see CLAUDE.md).
+// IF/THEN/ELSE (build order step 6), FOR/NEXT (build order step 7),
+// GOSUB/RETURN/ON...GOTO/ON...GOSUB (build order step 8), and INPUT
+// (build order step 9). Every other keyword the lexer recognizes (WHILE,
+// DIM, DATA, READ, RESTORE, DEF — see src/lexer/keywords.ts) currently
+// raises a clear "not implemented yet" ParseError rather than being
+// silently mis-parsed; each lands in its own build-order step (see
+// CLAUDE.md).
 
 import type {
   ForStmt,
@@ -16,6 +17,7 @@ import type {
   GotoStmt,
   IfBranch,
   IfStmt,
+  InputStmt,
   LetStmt,
   LValue,
   NextStmt,
@@ -80,6 +82,8 @@ export function parseStatement(cursor: TokenCursor): Statement {
         return { kind: "ReturnStmt" };
       case "ON":
         return parseOnJumpStmt(cursor);
+      case "INPUT":
+        return parseInputStmt(cursor);
       case "END":
         cursor.advance();
         return { kind: "EndStmt" };
@@ -256,6 +260,33 @@ function parseOnJumpStmt(cursor: TokenCursor): OnJumpStmt {
     if (!cursor.match("Operator", ",")) break;
   }
   return { kind: "OnJumpStmt", mode, selector, targets };
+}
+
+/**
+ * `INPUT ["prompt"(";"|",")] var[, var...]`. A prompt followed by `;`
+ * appends a trailing `? ` (GW-BASIC's default); followed by `,` suppresses
+ * it, leaving just the prompt text. No prompt at all still shows a bare
+ * `? `. See DIALECT.md — the leading `INPUT;` newline-suppression form
+ * (distinct from the prompt's own `;`/`,`) isn't supported.
+ */
+function parseInputStmt(cursor: TokenCursor): InputStmt {
+  cursor.expect("Keyword", "INPUT");
+
+  let prompt: string | undefined;
+  let appendQuestionMark = true;
+  if (cursor.check("String")) {
+    prompt = stringValue(cursor.advance());
+    appendQuestionMark = !cursor.match("Operator", ",");
+    if (appendQuestionMark) cursor.expect("Operator", ";");
+  }
+
+  const targets: LValue[] = [];
+  for (;;) {
+    targets.push(parseLValue(cursor));
+    if (!cursor.match("Operator", ",")) break;
+  }
+
+  return { kind: "InputStmt", prompt, appendQuestionMark, targets };
 }
 
 function parseLineNumberTarget(cursor: TokenCursor, context: string): number {

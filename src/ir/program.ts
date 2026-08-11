@@ -24,6 +24,7 @@ export type Step =
   | GosubStep
   | ReturnStep
   | OnJumpStep
+  | InputStep
   | NoOpStep
   | HaltStep;
 
@@ -143,6 +144,21 @@ export interface OnJumpStep extends StepBase {
   readonly mode: "goto" | "gosub";
   readonly selector: Expression;
   readonly targets: readonly JumpTarget[];
+}
+
+/**
+ * `INPUT ["prompt"] var[, var...]`: the only Step kind whose emitted case
+ * body ever `await`s (besides `rt.print`, always awaited for host
+ * symmetry) — suspends the dispatch loop at exactly this point using
+ * native JS async machinery. `prompt`/`appendQuestionMark` are resolved
+ * to a single fully-computed prompt string at emission time (see
+ * emit-input.ts), not carried further as separate runtime concerns.
+ */
+export interface InputStep extends StepBase {
+  readonly kind: "Input";
+  readonly prompt?: string;
+  readonly appendQuestionMark: boolean;
+  readonly targets: readonly LValue[];
 }
 
 /** REM/`'` comments: no runtime effect, just falls through to the next step. */

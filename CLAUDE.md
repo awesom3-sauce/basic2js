@@ -286,4 +286,17 @@ the relevant step above — that's the intended landing spot for each piece of r
   (nested GOSUB, `ON...GOTO`/`ON...GOSUB` with in-range and out-of-range selectors, `RETURN WITHOUT
 GOSUB`) before formal tests were written, same workflow as step 7.
 
-Next: step 9, `INPUT` (async suspension) + readline-based `NodeRuntime` input.
+- Step 9 (`INPUT` + readline `NodeRuntime` input) — `InputStep` is the second (after `Print`)
+  case body that ever `await`s. Prompt text (`"prompt? "` / `"prompt"` / bare `"? "`, per whether a
+  custom prompt was given and whether it was followed by `;` or `,`) is fully resolved to one string
+  at **emission** time, not left as a runtime concern. **Real bug found and fixed**: `NodeRuntime`
+  originally used `readline/promises`' `.question()`, but direct experimentation (`echo "a\nb" | ...`)
+  showed a second sequential `await rl.question(...)` call never resolves when stdin is a non-TTY
+  pipe and both lines arrive in the same underlying chunk — readline buffers the second line
+  internally before the second `.question()`'s listener exists to receive it. This isn't a
+  hypothetical edge case: `basic2js run program.bas < input.txt` is an entirely ordinary way to run
+  a program non-interactively, and multi-`INPUT` programs are common. Fixed by driving the plain
+  `readline.Interface` via its async iterator instead, which reads buffered lines correctly
+  regardless of chunking. `tests/golden/programs/temp-converter/` filled in (was a placeholder).
+
+Next: step 10, `DIM` + array l-values/bounds.

@@ -498,3 +498,46 @@ describe("parse — GOSUB/RETURN/ON", () => {
     expect(() => parseSource("10 ON N PRINT 1")).toThrow(ParseError);
   });
 });
+
+describe("parse — INPUT", () => {
+  it("parses a bare INPUT with a single target", () => {
+    expect(firstStatement("10 INPUT X")).toEqual({
+      kind: "InputStmt",
+      prompt: undefined,
+      appendQuestionMark: true,
+      targets: [{ kind: "Variable", name: "x", suffix: "" }],
+    });
+  });
+
+  it("parses INPUT with multiple targets", () => {
+    expect(firstStatement("10 INPUT A, B$")).toEqual({
+      kind: "InputStmt",
+      prompt: undefined,
+      appendQuestionMark: true,
+      targets: [
+        { kind: "Variable", name: "a", suffix: "" },
+        { kind: "Variable", name: "b", suffix: "$" },
+      ],
+    });
+  });
+
+  it('parses a prompt followed by ";" as appending a question mark', () => {
+    const stmt = firstStatement('10 INPUT "Name"; N$');
+    expect(stmt).toEqual({
+      kind: "InputStmt",
+      prompt: "Name",
+      appendQuestionMark: true,
+      targets: [{ kind: "Variable", name: "n", suffix: "$" }],
+    });
+  });
+
+  it('parses a prompt followed by "," as suppressing the question mark', () => {
+    const stmt = firstStatement('10 INPUT "Name", N$');
+    expect(stmt).toEqual({
+      kind: "InputStmt",
+      prompt: "Name",
+      appendQuestionMark: false,
+      targets: [{ kind: "Variable", name: "n", suffix: "$" }],
+    });
+  });
+});

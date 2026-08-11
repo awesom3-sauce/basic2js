@@ -270,3 +270,31 @@ describe("lower — lineToStep index", () => {
     expect(lineToStep.get(30)).toBe(steps.findIndex((s) => s.kind === "Print" && s.line === 30));
   });
 });
+
+describe("lower — INPUT", () => {
+  it("lowers INPUT 1:1 into an Input step", () => {
+    const { steps } = lowerSource("10 INPUT X");
+    expect(steps).toEqual([
+      {
+        kind: "Input",
+        line: 10,
+        prompt: undefined,
+        appendQuestionMark: true,
+        targets: [{ kind: "Variable", name: "x", suffix: "" }],
+      },
+    ]);
+  });
+
+  it("carries a custom prompt and appendQuestionMark through", () => {
+    const { steps } = lowerSource('10 INPUT "Name", N$');
+    expect(steps).toEqual([
+      {
+        kind: "Input",
+        line: 10,
+        prompt: "Name",
+        appendQuestionMark: false,
+        targets: [{ kind: "Variable", name: "n", suffix: "$" }],
+      },
+    ]);
+  });
+});

@@ -432,3 +432,50 @@ describe("emit — ON...GOTO / ON...GOSUB", () => {
     expect(rt.errors).toHaveLength(0);
   });
 });
+
+describe("emit — INPUT", () => {
+  it("reads a numeric value and coerces it", async () => {
+    const rt = await runBasic("10 INPUT X\n20 PRINT X * 2", ["21"]);
+    expect(rt.output).toBe("?  42 \n");
+  });
+
+  it("reads a string value, trimmed", async () => {
+    const rt = await runBasic("10 INPUT A$\n20 PRINT A$", ["  spaced  "]);
+    expect(rt.output).toBe("? spaced\n");
+  });
+
+  it('shows "prompt? " for a prompt followed by ";"', async () => {
+    const rt = await runBasic('10 INPUT "Enter name"; N$\n20 PRINT "Hello, "; N$', ["World"]);
+    expect(rt.output).toBe("Enter name? Hello, World\n");
+  });
+
+  it('shows just "prompt" (no "?") for a prompt followed by ","', async () => {
+    const rt = await runBasic('10 INPUT "Enter value", X\n20 PRINT X', ["5"]);
+    expect(rt.output).toBe("Enter value 5 \n");
+  });
+
+  it("splits a single comma-separated response across multiple targets", async () => {
+    const rt = await runBasic("10 INPUT A, B\n20 PRINT A + B", ["3,4"]);
+    expect(rt.output).toBe("?  7 \n");
+  });
+
+  it("supports multiple INPUT statements in sequence", async () => {
+    const rt = await runBasic("10 INPUT A\n20 INPUT B\n30 PRINT A + B", ["10", "20"]);
+    expect(rt.output).toBe("? ?  30 \n");
+  });
+
+  it("supports INPUT inside a loop", async () => {
+    const rt = await runBasic("10 FOR I = 1 TO 3\n20 INPUT X\n30 PRINT X * 10\n40 NEXT I", [
+      "1",
+      "2",
+      "3",
+    ]);
+    expect(rt.output).toBe("?  10 \n?  20 \n?  30 \n");
+  });
+
+  it("defaults unparseable numeric input to 0 rather than crashing", async () => {
+    const rt = await runBasic("10 INPUT X\n20 PRINT X", ["not a number"]);
+    expect(rt.output).toBe("?  0 \n");
+    expect(rt.errors).toHaveLength(0);
+  });
+});

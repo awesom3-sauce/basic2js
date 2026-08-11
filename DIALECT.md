@@ -31,10 +31,13 @@ build order progresses. Currently everything is `[ ]` — this is the target spe
 - `PRINT` — with `;` (no separator/concatenate) and `,` (14-column tab-zone) segment separators;
   a trailing `;` or `,` suppresses the terminating newline. Numbers print with a leading space if
   non-negative and a trailing space always (classic BASIC convention).
-- `INPUT ["prompt";] var[, var...]` — prints an optional prompt (appending `? ` unless the prompt
-  string itself ends in a custom separator — confirm exact GW-BASIC behavior when implementing),
-  suspends via the runtime's async `input()`, splits the response on commas, coerces each part to
-  its target variable's suffix.
+- `INPUT ["prompt"(";"|",")] var[, var...]` — a prompt followed by `;` shows `prompt? ` (question
+  mark appended); followed by `,` shows just `prompt` (no `?`); no prompt at all still shows a bare
+  `? `. Suspends via the runtime's async `input()`, splits the response on commas, coerces each part
+  to its target variable's suffix (numeric parse via `Number(...)`, falling back to `0` on
+  unparseable input — a known simplification vs. real BASIC's "?Redo from start" re-prompt, see Open
+  Decisions). The leading-semicolon `INPUT;` form (suppresses the newline after the user's typed
+  response) isn't supported — out of scope, a formatting nuance rather than a functional gap.
 - `LET var = expr` and implicit assignment (`var = expr` without `LET`).
 - `IF cond THEN <line-number | statement-list> [ELSE <line-number | statement-list>]` — **the
   THEN/ELSE clause's statement list extends to the end of the physical line**, it is not
@@ -161,3 +164,9 @@ revisited explicitly** — if you change one, update this section and any golden
   statements (each lowers to its own independent Step, evaluated in the order written). Real BASIC
   dialects vary on the exact semantics here and it's a rare construct in practice; revisit only if
   a real-world program needs different behavior.
+- **`INPUT` numeric parsing on invalid input**: falls back to `0` for unparseable numeric input,
+  rather than real BASIC's `?Redo from start` re-prompt loop. Full validation-with-retry is
+  deferred to step 15/16 alongside the rest of type-suffix enforcement.
+- **Leading `INPUT;` form**: not supported (out of scope) — this is the syntax for suppressing the
+  newline echoed after the user's response, a formatting nuance distinct from the prompt's own
+  `;`/`,` separator, which _is_ fully supported.
