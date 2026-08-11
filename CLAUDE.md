@@ -203,4 +203,15 @@ the relevant step above — that's the intended landing spot for each piece of r
   yet" `ParseError` naming the keyword, rather than being silently mis-parsed. `src/util/assert-never.ts`
   is in place for the exhaustiveness convention, ready for step 3's lowering to start using it.
 
-Next: step 3, lowering (`Program → Step[] + lineToStep`) for this same linear/GOTO-only subset.
+- Step 3 (lowering) — `src/ir/program.ts` defines `Step` (currently `Print`/`Let`/`Goto`/`NoOp`/`Halt`,
+  one per supported statement kind — deliberately *not* pre-designed for IF/FOR/GOSUB/WHILE the way
+  the AST/keyword tables were, since those need real runtime-stack semantics that aren't validated
+  yet) and `LineIndex`/`LoweredProgram`. `src/ir/lower-statements.ts` lowers each supported
+  statement 1:1 into a Step, with explicit throwing cases (backed by `assertNever`) for every other
+  Statement kind as a defensive backstop. `src/ir/lowering.ts`'s `lower(program)` flattens all lines
+  into one contiguous `Step[]` and builds `lineToStep`. Key finding baked into the design: `GotoStep`
+  carries the raw, *unresolved* BASIC line number — lowering never needs to solve forward references,
+  because empty lines and jump targets both naturally resolve via `lineToStep` at emission time (or
+  a `LINESTART`-style table in the emitted JS itself, per the plan's illustrative shape).
+
+Next: step 4, the emitter — `Step[] → JS source text` (the async dispatch-loop `run(rt)` function).
