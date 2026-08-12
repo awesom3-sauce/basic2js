@@ -30,6 +30,19 @@ export class NodeRuntime implements BasicRuntime {
   // real BASIC's "unseeded RND still varies run to run" behavior. Call
   // RANDOMIZE for deterministic output.
   private readonly rng = new SeedableRandom();
+  private _hadError = false;
+
+  /**
+   * True once reportError has ever been called (build order step 19) — the
+   * dispatch loop's top-level catch always reports and then simply *stops*
+   * (see emit-program.ts), so `await run(rt)` itself never rejects for a
+   * BASIC runtime error the way it does for a JS-level bug in the runtime
+   * host. The CLI's `run` command checks this after `run()` resolves to
+   * decide whether to exit non-zero — see commands/run.ts.
+   */
+  get hadError(): boolean {
+    return this._hadError;
+  }
 
   print(text: string): void {
     process.stdout.write(text);
@@ -57,6 +70,7 @@ export class NodeRuntime implements BasicRuntime {
   }
 
   reportError(error: BasicRuntimeError): void {
+    this._hadError = true;
     // error.message is already self-descriptive (every prelude.ts helper's
     // thrown message starts with its own human-readable code text, e.g.
     // "OVERFLOW: ..." — see __toBasicError), so this doesn't re-prefix

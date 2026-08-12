@@ -1,19 +1,25 @@
-// `basic2js convert <input.bas> [-o <output.js>]`
-//
-// TODO (build order step 19): --standalone flag to append an
-// import.meta.url-guarded footer that constructs a NodeRuntime and calls
-// run(), so `node output.js` works standalone without the CLI.
+// `basic2js convert <input.bas> [-o <output.js>] [--standalone]`
 
 import { readFile, writeFile } from "node:fs/promises";
 import { compile } from "../../index.js";
+import { STANDALONE_FOOTER } from "../../emitter/standalone-footer.js";
 
-export async function convertCommand(filePath: string, outputPath?: string): Promise<void> {
+export interface ConvertCommandOptions {
+  readonly output?: string;
+  readonly standalone?: boolean;
+}
+
+export async function convertCommand(
+  filePath: string,
+  options: ConvertCommandOptions,
+): Promise<void> {
   const source = await readFile(filePath, "utf-8");
   const { js } = compile(source);
+  const output = options.standalone ? `${js}\n\n${STANDALONE_FOOTER}\n` : js;
 
-  if (outputPath) {
-    await writeFile(outputPath, js, "utf-8");
+  if (options.output) {
+    await writeFile(options.output, output, "utf-8");
   } else {
-    process.stdout.write(js);
+    process.stdout.write(output);
   }
 }

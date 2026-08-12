@@ -139,7 +139,10 @@ npm run lint                 # eslint .
 npm run format                # prettier --write .
 npm run web:dev               # vite dev server for web/
 npm run web:build              # production build of web/ -> web/dist
-node dist/cli/index.js run examples/fizzbuzz.bas   # after building; or `npx tsx src/cli/index.ts run ...` during dev
+node dist/cli/index.js run tests/golden/programs/fizzbuzz/program.bas   # after building; or `npx tsx src/cli/index.ts run ...` during dev
+node dist/cli/index.js run program.bas --emit-ast      # debug: dump the parsed AST as JSON
+node dist/cli/index.js run program.bas --emit-steps    # debug: dump the lowered Step[] as JSON
+node dist/cli/index.js convert program.bas --standalone -o out.js && node out.js   # no basic2js install needed to run out.js
 ```
 
 ## How to add a new BASIC statement
@@ -195,7 +198,7 @@ the scaffolding plan (git history); summary:
 Every `src/**` file not yet reached by this build order is a stub with a `TODO` comment pointing at
 the relevant step above — that's the intended landing spot for each piece of real implementation.
 
-**Progress**: steps 1–17 are implemented.
+**Progress**: steps 1–19 are implemented.
 
 - Step 1 (minimal lexer) — `src/lexer/{token,keywords,lex-error,lexer}.ts` + colocated `lexer.test.ts`.
   It's dialect-complete on the keyword/operator table (a lookup table costs nothing to fill in
@@ -603,4 +606,51 @@ backslash in `__val`'s regex (`\\d`, `\\.`); documented prominently in prelude.t
   take effect — a real, if mundane, environment-setup finding worth recording since it wasn't
   obvious from `package.json` alone (the version skew was in `package-lock.json`'s resolved tree).
 
-Next: step 19, CLI polish (`--standalone`, `--emit-ast`, `--emit-steps`, help text, exit codes).
+- Step 19 (CLI polish) — `--emit-ast`/`--emit-steps` (on `run`) deliberately bypass `compile()`
+  entirely, calling `tokenize`/`parse`/`lower` directly instead: dumping the AST/`Step[]` is often
+  exactly what you want _when_ a program has a compile-time `SemanticError`, to see why, so neither
+  flag should be blocked by the same throw a normal run correctly is. This is a case where the CLI
+  legitimately reaches past the `compile()` boundary into the compiler core's individual stages —
+  allowed for the CLI specifically (unlike `web/src/engine`, which stays contractually restricted
+  to `compile()` + `BrowserRuntime` only). `JSON.stringify`'s replacer flattens `LoweredProgram`'s
+  `Map` fields (`lineToStep`/`dataLineStarts`/`fnDefs`) to plain objects, since a bare `Map`
+  otherwise silently serializes as `"{}"`.
+
+  Exit codes: found and fixed a real, pre-existing gap while implementing this — `basic2js run`
+  always exited `0` even when a program hit a runtime `BasicRuntimeError` (OVERFLOW, DIVISION BY
+  ZERO, ...), because the dispatch loop's top-level catch (`emit-program.ts`) reports the error and
+  simply _stops_; it never makes the emitted `run(rt)` Promise itself reject, so `runCommand`'s
+  `await run(rt)` always resolved normally regardless. Fixed by giving `NodeRuntime` a `hadError`
+  flag (set by `reportError`) that `runCommand` checks afterward to set `process.exitCode = 1` —
+  without re-printing the error, since `reportError` already wrote it to stderr.
+
+  `--standalone` (on `convert`) appends a footer (`src/emitter/standalone-footer.ts`) that inlines
+  a _complete_ minimal runtime as plain JS text — including a real mulberry32 PRNG, not
+  `Math.random()`, so a standalone program's `RANDOMIZE`-seeded output matches `basic2js run`
+  exactly — rather than importing `NodeRuntime`, which would silently reintroduce a dependency on
+  the `basic2js` package being installed wherever the output file ends up, defeating the entire
+  point of emitted code having zero import dependencies. Same "duplicate the pure logic as
+  embedded text, don't import it" pattern `prelude.ts` already uses throughout.
+
+  **Real bug found and fixed** (caught by an integration test that actually spawned the generated
+  standalone output with a separate `node` invocation, not by reasoning about it in advance): the
+  first version's "was this module run directly" check (`import.meta.url === "file://" +
+process.argv[1]`, the naive textbook ESM idiom) silently did nothing — no output, no error, exit
+  0 — whenever the invocation path crossed a symlink. This is the _common_ case on macOS (`/tmp` ->
+  `/private/tmp`, `/var` -> `/private/var`, both of which `os.tmpdir()` routes through), since
+  `import.meta.url` reflects Node's resolved (symlink-followed) module path while `process.argv[1]`
+  is whatever un-resolved string the user typed — so any temp-directory-based test, and plenty of
+  real invocations, hit the mismatch. Fixed by resolving both sides through
+  `fs.realpathSync`/`url.pathToFileURL` before comparing. `tests/cli.test.ts`'s standalone tests
+  (which spawn the CLI via `tsx` and the generated output via plain `node`, then diff output against
+  an equivalent `basic2js run`) are what caught this — a case where an integration-level test caught
+  a bug a unit test calling `convertCommand()` as a plain function never would have, since the bug
+  was specifically about how a _separate_ `node` process resolves paths.
+
+  New `tests/cli.test.ts` (the CLI's first test file — its logic had been thin enough not to need
+  one before, but exit codes and `--standalone`'s cross-process behavior specifically aren't
+  observable by calling `runCommand()`/`convertCommand()` as plain functions) spawns the actual CLI
+  via `npx tsx src/cli/index.ts` rather than the built `dist/`, so the suite doesn't require
+  `npm run build` to have run first.
+
+Next: step 20, the final docs pass.
