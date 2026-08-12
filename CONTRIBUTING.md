@@ -70,9 +70,13 @@ anywhere in `web/src/components/` — go through `web/src/engine/` instead.
 
 ## PR checklist
 
-- [ ] `npm run typecheck` passes
-- [ ] `npm test` passes (colocated unit tests + golden tests)
+- [ ] `npm run typecheck` passes (and `npm run web:typecheck` if you touched `web/`)
+- [ ] `npm test` passes (colocated unit tests + golden tests + CLI integration tests)
 - [ ] `npm run lint` passes
+- [ ] `npm run format` (or `format:check`) — no outstanding formatting diffs
 - [ ] Any new BASIC statement/function/edge-case behavior is documented in [DIALECT.md](DIALECT.md)
 - [ ] Any new AST node kind has exhaustive `switch` handling (via `assertNever`) in every consumer
       (analyzer, lowering, emitter) — check for a TS error if you forgot one
+
+All of the above run automatically in CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) on
+every push and pull request, plus both production builds (`npm run build`, `npm run web:build`).
