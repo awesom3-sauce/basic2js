@@ -4,11 +4,13 @@
 // any diagnostics, rather than proceeding to lower/emit code known to
 // misbehave.
 //
-// Build order step 15 scope ("type-suffix enforcement, compile-time
-// half"): flags every statically-knowable string/number suffix mismatch —
-// LET's target vs. value, a FOR loop variable's suffix (can't be `$`), a
-// FOR's start/end/step, an IF/WHILE's condition, an ON...GOTO/GOSUB's
-// selector, a DIM's array-size expressions, and a RANDOMIZE's seed — using
+// Two independent checks, one per build order step:
+//
+// Step 15 ("type-suffix enforcement, compile-time half"): flags every
+// statically-knowable string/number suffix mismatch — LET's target vs.
+// value, a FOR loop variable's suffix (can't be `$`), a FOR's start/end/
+// step, an IF/WHILE's condition, an ON...GOTO/GOSUB's selector, a DIM's
+// array-size expressions, and a RANDOMIZE's seed — using
 // ast/infer-type.ts's inferExpressionType, which is enough for every check
 // here since BASIC's suffix is part of an identifier's own spelling (see
 // DIALECT.md) — no symbol table tracking "what was X declared as"
@@ -18,24 +20,32 @@
 // given READ can depend on runtime RESTORE/control-flow, not just source
 // order, so a general compile-time correlation isn't feasible; INPUT's
 // source is user-typed text, never statically known at all. Both still get
-// *runtime* coercion (see emit-read.ts/emit-input.ts) — this file only
-// covers the compile-time half.
+// *runtime* coercion (see emit-read.ts/emit-input.ts).
 //
-// TODO (build order step 16): also validate that every GOTO/GOSUB/
-// ON.../IF-line/RESTORE-line target resolves to a real line number
-// (a new UNDEFINED_LINE diagnostic code — see diagnostic.ts).
+// Step 16 ("undefined-line-target validation"): flags every GOTO/GOSUB/
+// ON...GOTO/GOSUB/IF-line-branch/RESTORE-line target that doesn't resolve
+// to a real line number in the program — BASIC never computes jump targets
+// dynamically (no computed GOTO), so every target is knowable up front by
+// simply collecting every Line.lineNumber into a set. This is exactly the
+// same category of "structural defect, not a data-dependent bug" WHILE/
+// WEND mismatches already get caught as (lowering.ts's resolveWhileWend,
+// step 12) — checking it here, at the same compile-time stage as the
+// type-suffix work, keeps both a program's compile-time defects surfacing
+// together in one SemanticError rather than across two different error
+// classes.
 
 import type { Expression } from "../ast/expressions.js";
 import { inferExpressionType, type BasicType } from "../ast/infer-type.js";
-import type { LValue, Statement } from "../ast/statements.js";
+import type { IfBranch, LValue, Statement } from "../ast/statements.js";
 import type { Program } from "../ast/program.js";
 import type { Diagnostic } from "./diagnostic.js";
 import { assertNever } from "../util/assert-never.js";
 
 export function analyze(program: Program): Diagnostic[] {
   const diagnostics: Diagnostic[] = [];
+  const knownLines = new Set(program.lines.map((line) => line.lineNumber));
   for (const line of program.lines) {
-    checkStatements(line.statements, line.lineNumber, diagnostics);
+    checkStatements(line.statements, line.lineNumber, knownLines, diagnostics);
   }
   return diagnostics;
 }
@@ -43,12 +53,20 @@ export function analyze(program: Program): Diagnostic[] {
 function checkStatements(
   statements: readonly Statement[],
   lineNumber: number,
+  knownLines: ReadonlySet<number>,
   diagnostics: Diagnostic[],
 ): void {
-  for (const statement of statements) checkStatement(statement, lineNumber, diagnostics);
+  for (const statement of statements) {
+    checkStatement(statement, lineNumber, knownLines, diagnostics);
+  }
 }
 
-function checkStatement(statement: Statement, lineNumber: number, diagnostics: Diagnostic[]): void {
+function checkStatement(
+  statement: Statement,
+  lineNumber: number,
+  knownLines: ReadonlySet<number>,
+  diagnostics: Diagnostic[],
+): void {
   switch (statement.kind) {
     case "LetStmt":
       checkAssignment(statement.target, statement.value, lineNumber, diagnostics);
@@ -69,11 +87,9 @@ function checkStatement(statement: Statement, lineNumber: number, diagnostics: D
 
     case "IfStmt":
       checkNumeric(statement.condition, lineNumber, "an IF condition", diagnostics);
-      if (statement.thenBranch.kind === "Statements") {
-        checkStatements(statement.thenBranch.statements, lineNumber, diagnostics);
-      }
-      if (statement.elseBranch?.kind === "Statements") {
-        checkStatements(statement.elseBranch.statements, lineNumber, diagnostics);
+      checkIfBranch(statement.thenBranch, lineNumber, knownLines, diagnostics);
+      if (statement.elseBranch !== undefined) {
+        checkIfBranch(statement.elseBranch, lineNumber, knownLines, diagnostics);
       }
       break;
 
@@ -83,6 +99,9 @@ function checkStatement(statement: Statement, lineNumber: number, diagnostics: D
 
     case "OnJumpStmt":
       checkNumeric(statement.selector, lineNumber, "an ON...GOTO/GOSUB selector", diagnostics);
+      for (const target of statement.targets) {
+        checkLineTarget(target, lineNumber, knownLines, diagnostics);
+      }
       break;
 
     case "DimStmt":
@@ -97,19 +116,30 @@ function checkStatement(statement: Statement, lineNumber: number, diagnostics: D
       checkNumeric(statement.seed, lineNumber, "a RANDOMIZE seed", diagnostics);
       break;
 
+    case "GotoStmt":
+      checkLineTarget(statement.target, lineNumber, knownLines, diagnostics);
+      break;
+
+    case "GosubStmt":
+      checkLineTarget(statement.target, lineNumber, knownLines, diagnostics);
+      break;
+
+    case "RestoreStmt":
+      if (statement.target !== undefined) {
+        checkLineTarget(statement.target, lineNumber, knownLines, diagnostics);
+      }
+      break;
+
     // Nothing to check for the rest of the Statement kinds: ReadStmt/
     // InputStmt are deliberately skipped (see this file's header comment —
     // READ's DATA-pool source types aren't statically correlatable with
     // its targets, INPUT has no static source at all; both still get
-    // *runtime* coercion elsewhere), the GOTO-family kinds only carry
-    // line-number targets (no Expression operands), and the remainder are
-    // either non-executable or have no type-suffix-relevant operands.
+    // *runtime* coercion elsewhere), and the remainder are either
+    // non-executable, carry no line-number targets, or have no
+    // type-suffix-relevant operands.
     case "ReadStmt":
     case "InputStmt":
-    case "GotoStmt":
-    case "GosubStmt":
     case "ReturnStmt":
-    case "RestoreStmt":
     case "WendStmt":
     case "NextStmt":
     case "DataStmt":
@@ -125,6 +155,19 @@ function checkStatement(statement: Statement, lineNumber: number, diagnostics: D
 
     default:
       assertNever(statement, "checkStatement");
+  }
+}
+
+function checkIfBranch(
+  branch: IfBranch,
+  lineNumber: number,
+  knownLines: ReadonlySet<number>,
+  diagnostics: Diagnostic[],
+): void {
+  if (branch.kind === "GotoLine") {
+    checkLineTarget(branch.lineNumber, lineNumber, knownLines, diagnostics);
+  } else {
+    checkStatements(branch.statements, lineNumber, knownLines, diagnostics);
   }
 }
 
@@ -154,6 +197,21 @@ function checkNumeric(
 ): void {
   if (inferExpressionType(expr) !== "number") {
     diagnostics.push(typeMismatch(lineNumber, `${description} must be numeric, not a string`));
+  }
+}
+
+function checkLineTarget(
+  target: number,
+  lineNumber: number,
+  knownLines: ReadonlySet<number>,
+  diagnostics: Diagnostic[],
+): void {
+  if (!knownLines.has(target)) {
+    diagnostics.push({
+      code: "UNDEFINED_LINE",
+      message: `line ${target} does not exist in this program`,
+      line: lineNumber,
+    });
   }
 }
 

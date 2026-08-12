@@ -6,7 +6,7 @@ structured dialect like QBasic. It is written as a spec-as-built: keep it in syn
 and emitter as each feature lands (see CLAUDE.md's staged build order), and use it as the
 reference when writing golden tests.
 
-Status: as of build order step 15, every construct documented below is implemented (see
+Status: as of build order step 16, every construct documented below is implemented (see
 CLAUDE.md's "Progress" notes for exactly which build-order step landed each one) — this file
 describes the compiler as it actually behaves today, not a target spec for future work.
 
@@ -90,7 +90,7 @@ describes the compiler as it actually behaves today, not a target spec for futur
   see Open Decisions.
 - `READ var[, var...]` — advances a shared pointer into the `DATA` pool. Unlike `INPUT`, `DATA`
   values are already typed from parsing; `READ` still applies the same runtime `%`/`$`-suffix
-  coercion every other assignment site does (see Type-suffix semantics), but gets no *compile-time*
+  coercion every other assignment site does (see Type-suffix semantics), but gets no _compile-time_
   mismatch check the way `LET` does — see that section for why. Reading past the end is an
   `OUT OF DATA` runtime error.
 - `RESTORE [line-number]` — resets the `DATA` pointer to the start of the pool, or to the first
@@ -192,12 +192,31 @@ not just its first iteration).
   known to misbehave — see `src/semantics/semantic-error.ts`'s header comment for why a throwing
   design was chosen over a non-throwing `diagnostics` field.
 
-## Runtime error taxonomy
+## Runtime error taxonomy (implemented build order step 16)
 
-`SYNTAX`, `TYPE_MISMATCH`, `OVERFLOW`, `DIVISION_BY_ZERO`, `SUBSCRIPT_OUT_OF_RANGE`,
-`OUT_OF_DATA`, `UNDEFINED_LINE` (raised at **compile time** as a diagnostic, not deferred to
-runtime, since BASIC never computes jump targets dynamically), `RETURN_WITHOUT_GOSUB`,
-`NEXT_WITHOUT_FOR`, `ILLEGAL_FUNCTION_CALL`.
+Two kinds of failure, surfaced two different ways:
+
+- **Compile-time-only**: `SYNTAX` (a `ParseError`, thrown directly by the parser — see
+  `src/parser/errors.ts`) and `UNDEFINED_LINE` (a `SemanticError` diagnostic — see Type-suffix
+  semantics' `SemanticError` note above, and the paragraph below). Neither can ever reach the
+  dispatch loop at runtime: `SYNTAX` errors stop compilation before an AST even exists, and BASIC
+  has no computed `GOTO` — every jump target (`GOTO`/`GOSUB`/`ON...GOTO`/`ON...GOSUB`/an `IF`'s
+  line-number branch/a `RESTORE`'s line target) is fully known at compile time, so
+  `src/semantics/analyzer.ts`'s `analyze()` checks every one of them against the set of line
+  numbers the program actually defines, flagging any that don't resolve. `WHILE`/`WEND` mismatches
+  (step 12) are the same category of structural defect and are likewise caught before runtime, just
+  through a different mechanism (`lowering.ts`'s `resolveWhileWend`, not the analyzer).
+- **Runtime**: `TYPE_MISMATCH` (also reachable here, not just at compile time — see `READ`'s entry
+  above), `OVERFLOW`, `DIVISION_BY_ZERO` (raised by `/`, `\`, and `MOD` on a zero divisor — unlike
+  JS's own operators, which silently produce `Infinity`/`NaN`), `SUBSCRIPT_OUT_OF_RANGE`,
+  `OUT_OF_DATA`, `RETURN_WITHOUT_GOSUB`, `NEXT_WITHOUT_FOR`, `ILLEGAL_FUNCTION_CALL`, and a
+  catch-all `RUNTIME_ERROR` fallback for anything that doesn't fit one of those (e.g. `RESTORE` to
+  a line that exists but has no `DATA` of its own). Every runtime error is a `BasicRuntimeError`
+  (`src/runtime/shared/errors.ts`: `message` + `code` + the BASIC line number executing when it was
+  raised), constructed by `prelude.ts`'s `__toBasicError` — which matches the caught error's
+  message against each code's own human-readable prefix text (every prelude helper's thrown
+  message already starts with one, e.g. `"OVERFLOW: ..."`) — right before the dispatch loop's
+  top-level catch hands it to `rt.reportError`.
 
 ## Open Decisions / Locked Defaults
 
@@ -252,9 +271,10 @@ revisited explicitly** — if you change one, update this section and any golden
   requiring the space sidesteps that and, as a bonus, makes `FN name(...)` calls unambiguous with
   array references at parse time too (a call is always `FN`-keyword-prefixed, an array reference
   never is). Revisit only if a real-world `.bas` listing needs the concatenated form.
-- **Integer division `\`**: emitted as `Math.trunc(left / right)`. Real GW-BASIC may round each
-  operand to an integer _before_ dividing rather than just truncating the final quotient —
-  unverified; revisit in step 14/16 polish if it matters for a golden program.
+- **Integer division `\`**: emitted as `__intDiv(left, right)` (`Math.trunc(left / right)`, plus a
+  `DIVISION_BY_ZERO` guard — see prelude.ts). Real GW-BASIC may round each operand to an integer
+  _before_ dividing rather than just truncating the final quotient — unverified; revisit if it
+  matters for a golden program.
 - **Multi-variable `NEXT I, J`**: treated as shorthand for separate consecutive `NEXT I` / `NEXT J`
   statements (each lowers to its own independent Step, evaluated in the order written). Real BASIC
   dialects vary on the exact semantics here and it's a rare construct in practice; revisit only if
@@ -273,7 +293,8 @@ revisited explicitly** — if you change one, update this section and any golden
   with a manually computed linear index, not nested arrays — keeps 1D/2D (and, though undocumented
   as supported, N-D) index computation uniform. An implementation detail, not user-visible.
 - **Re-`DIM`ing an array**: silently reallocates (resets) it rather than raising GW-BASIC's
-  `Redimensioned array` error. Revisit alongside step 16's error-taxonomy polish if it matters.
+  `Redimensioned array` error. Revisited at step 16 (error-taxonomy polish) and deliberately kept
+  as-is — no golden program or real-world `.bas` listing has needed the stricter behavior yet.
 - **Unquoted DATA values**: not supported — only numbers and quoted strings. Real BASIC allows
   bare-word string data (`DATA JOHN, 25`), but the lexer already normalizes identifier-shaped
   tokens to lowercase at tokenize time (it has no way to know, that early, that a token is a DATA
@@ -281,4 +302,19 @@ revisited explicitly** — if you change one, update this section and any golden
   silently corrupt an unquoted value's case. Requiring quotes sidesteps this entirely.
 - **`RESTORE <line>` targeting a line with no `DATA` of its own**: a runtime error ("RESTORE: no
   DATA at line N"), rather than falling back to the nearest following `DATA`-bearing line. Simpler,
-  and `RESTORE` almost always targets a line that actually has `DATA` in practice.
+  and `RESTORE` almost always targets a line that actually has `DATA` in practice. Classified as
+  the generic `RUNTIME_ERROR` fallback code (see Runtime error taxonomy) rather than a dedicated
+  one of its own — a single, rare edge case didn't seem worth its own taxonomy entry.
+- **`/`/`\`/`MOD` by zero**: raises a runtime `DIVISION_BY_ZERO` error (build order step 16),
+  unlike JS's own operators, which silently produce `Infinity`/`-Infinity`/`NaN`. Matches real
+  BASIC's behavior; a deliberate correction, not a simplification.
+- **Runtime error classification is message-prefix matching, not typed exceptions**: emitted code
+  has zero import dependencies (see CLAUDE.md's runtime host contract), so `prelude.ts`'s
+  `__toBasicError` can't `instanceof`-check against a real `BasicRuntimeError` class the way normal
+  TS code would — it matches the caught error's `message` against each `BasicErrorCode`'s own
+  human-readable prefix text instead (e.g. a message starting with `"OVERFLOW"` becomes the
+  `OVERFLOW` code), falling back to `RUNTIME_ERROR` for anything that doesn't match. This means
+  **every new prelude helper that throws a domain-specific error must start its message with a
+  recognized prefix**, or it silently becomes an untyped `RUNTIME_ERROR` — `runtime-calls.test.ts`-
+  style key-set assertions don't (and can't easily) catch this class of mistake, so double-check it
+  by hand when adding a new throwing helper to `prelude.ts`.

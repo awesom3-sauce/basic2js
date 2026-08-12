@@ -8,8 +8,12 @@
 // __return and ON...GOTO/GOSUB's __onJumpTarget, INPUT's __inputCoerce,
 // DIM/array access's __arrAlloc/__arrEnsure/__arrIndex/__arrGet/__arrSet,
 // DATA/READ/RESTORE's __readNext/__restoreTarget, (build order step 14) the
-// string/math builtin functions and PRINT's TAB()/SPC() helpers, and (build
-// order step 15) __toInt/__toStr for %/$-suffix assignment-time coercion.
+// string/math builtin functions and PRINT's TAB()/SPC() helpers, (build
+// order step 15) __toInt/__toStr for %/$-suffix assignment-time coercion,
+// and (build order step 16) __div/__intDiv/__mod's division-by-zero guards
+// plus __toBasicError, which the dispatch loop's top-level catch (see
+// emit-program.ts) uses to classify whatever was thrown into a
+// BasicRuntimeError-shaped object before handing it to rt.reportError.
 // Arrays are represented as { dims: number[], data: T[] } — a flat array
 // with a manually computed linear index, not nested arrays, so 1D and 2D
 // (and, not that DIALECT.md's v1 scope asks for it, N-D) access share the
@@ -226,5 +230,53 @@ function __toStr(s) {
     throw new Error("TYPE MISMATCH: expected a string value");
   }
   return s;
+}
+function __div(l, r) {
+  // build order step 16: JS's own "/" never throws on a zero divisor (it
+  // returns Infinity/-Infinity/NaN instead), unlike real BASIC, which
+  // raises a Division by zero error — see DIALECT.md's runtime error
+  // taxonomy. Guarded here (and in __intDiv/__mod below) rather than left
+  // as a silent Infinity/NaN.
+  if (r === 0) {
+    throw new Error("DIVISION BY ZERO");
+  }
+  return l / r;
+}
+function __intDiv(l, r) {
+  if (r === 0) {
+    throw new Error("DIVISION BY ZERO");
+  }
+  return Math.trunc(l / r);
+}
+function __mod(l, r) {
+  if (r === 0) {
+    throw new Error("DIVISION BY ZERO");
+  }
+  return l % r;
+}
+function __toBasicError(e, line) {
+  // Turns whatever the dispatch loop's top-level try/catch caught into a
+  // BasicRuntimeError-shaped object (see runtime/shared/errors.ts) before
+  // handing it to rt.reportError — matching every prelude helper's thrown
+  // Error message against the taxonomy's own human-readable prefix text
+  // (e.g. "OVERFLOW: ..."), since that's the only place in this
+  // zero-import-dependency emitted module a code could come from. Falls
+  // back to "RUNTIME_ERROR" for anything that doesn't match a known
+  // prefix (e.g. RESTORE to a line with no DATA of its own).
+  var message = e && e.message ? e.message : String(e);
+  var code = "RUNTIME_ERROR";
+  if (message.indexOf("TYPE MISMATCH") === 0) code = "TYPE_MISMATCH";
+  else if (message.indexOf("OVERFLOW") === 0) code = "OVERFLOW";
+  else if (message.indexOf("DIVISION BY ZERO") === 0) code = "DIVISION_BY_ZERO";
+  else if (message.indexOf("SUBSCRIPT OUT OF RANGE") === 0) code = "SUBSCRIPT_OUT_OF_RANGE";
+  else if (message.indexOf("OUT OF DATA") === 0) code = "OUT_OF_DATA";
+  else if (message.indexOf("RETURN WITHOUT GOSUB") === 0) code = "RETURN_WITHOUT_GOSUB";
+  else if (message.indexOf("NEXT WITHOUT FOR") === 0) code = "NEXT_WITHOUT_FOR";
+  else if (message.indexOf("ILLEGAL FUNCTION CALL") === 0) code = "ILLEGAL_FUNCTION_CALL";
+  var basicError = new Error(message);
+  basicError.name = "BasicRuntimeError";
+  basicError.code = code;
+  basicError.line = line;
+  return basicError;
 }
 `.trim();

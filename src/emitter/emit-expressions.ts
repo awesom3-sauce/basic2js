@@ -128,15 +128,21 @@ function emitBinaryExpr(
 
     case "-":
     case "*":
-    case "/":
       return `(${l} ${op} ${r})`;
 
+    case "/":
+      // Routed through prelude.ts's __div (build order step 16) rather
+      // than a bare JS "/", which never throws on a zero divisor (just
+      // Infinity/-Infinity/NaN) — real BASIC raises Division by zero.
+      return `__div(${l}, ${r})`;
+
     case "\\":
-      // Integer division, truncating toward zero. Known simplification:
-      // real GW-BASIC may round each operand to an integer before
-      // dividing rather than just truncating the final quotient —
-      // unverified, revisit in step 14/16 polish if it matters.
-      return `Math.trunc(${l} / ${r})`;
+      // Integer division, truncating toward zero (__intDiv, build order
+      // step 16, same division-by-zero guard as "/"). Known
+      // simplification: real GW-BASIC may round each operand to an
+      // integer before dividing rather than just truncating the final
+      // quotient — unverified, revisit if it matters for a golden program.
+      return `__intDiv(${l}, ${r})`;
 
     case "^":
       return `(${l} ** ${r})`;
@@ -144,8 +150,9 @@ function emitBinaryExpr(
     case "MOD":
       // JS's % is truncating-division remainder (sign follows the
       // dividend) — verified against Microsoft BASIC's documented MOD
-      // behavior, they match exactly. See DIALECT.md.
-      return `(${l} % ${r})`;
+      // behavior, they match exactly (see DIALECT.md); __mod (build order
+      // step 16) adds the same division-by-zero guard as "/" and "\\".
+      return `__mod(${l}, ${r})`;
 
     case "=":
       return `(${l} === ${r} ? -1 : 0)`;

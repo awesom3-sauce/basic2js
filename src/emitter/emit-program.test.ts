@@ -886,3 +886,89 @@ describe("emit — type-suffix coercion (%/$ at assignment time)", () => {
     expect(rt.output).toBe(" 2.5 \n 2.5 \n");
   });
 });
+
+describe("emit — division by zero (build order step 16)", () => {
+  it("raises DIVISION_BY_ZERO for / by zero", async () => {
+    const rt = await runBasic("10 PRINT 1 / 0\n20 END");
+    expect(rt.errors).toHaveLength(1);
+    expect(rt.errors[0]).toMatchObject({ code: "DIVISION_BY_ZERO", line: 10 });
+  });
+
+  it("raises DIVISION_BY_ZERO for \\ by zero", async () => {
+    const rt = await runBasic("10 PRINT 1 \\ 0\n20 END");
+    expect(rt.errors).toHaveLength(1);
+    expect(rt.errors[0]?.code).toBe("DIVISION_BY_ZERO");
+  });
+
+  it("raises DIVISION_BY_ZERO for MOD by zero", async () => {
+    const rt = await runBasic("10 PRINT 1 MOD 0\n20 END");
+    expect(rt.errors).toHaveLength(1);
+    expect(rt.errors[0]?.code).toBe("DIVISION_BY_ZERO");
+  });
+
+  it("still computes ordinary non-zero / \\ MOD correctly", async () => {
+    const rt = await runBasic("10 PRINT 10 / 4\n20 PRINT 10 \\ 4\n30 PRINT 10 MOD 4\n40 END");
+    expect(rt.output).toBe(" 2.5 \n 2 \n 2 \n");
+  });
+});
+
+describe("emit — BasicRuntimeError code classification (build order step 16)", () => {
+  it("classifies every distinct runtime error message with its taxonomy code", async () => {
+    const cases: Array<[string, string]> = [
+      ["10 A% = 99999\n20 END", "OVERFLOW"],
+      ["10 DIM A(3)\n20 PRINT A(10)\n30 END", "SUBSCRIPT_OUT_OF_RANGE"],
+      ["10 READ A\n20 END", "OUT_OF_DATA"],
+      ["10 RETURN\n20 END", "RETURN_WITHOUT_GOSUB"],
+      ["10 NEXT I\n20 END", "NEXT_WITHOUT_FOR"],
+      ["10 PRINT SQR(-1)\n20 END", "ILLEGAL_FUNCTION_CALL"],
+      ["10 DATA 5\n20 READ A$\n30 END", "TYPE_MISMATCH"],
+    ];
+    for (const [source, expectedCode] of cases) {
+      const rt = await runBasic(source);
+      expect(rt.errors, source).toHaveLength(1);
+      expect(rt.errors[0]?.code, source).toBe(expectedCode);
+    }
+  });
+
+  it("falls back to RUNTIME_ERROR for an unrecognized message (RESTORE to a line with no DATA)", async () => {
+    const rt = await runBasic("10 DATA 1\n20 RESTORE 30\n30 PRINT 1\n40 END");
+    expect(rt.errors).toHaveLength(1);
+    expect(rt.errors[0]?.code).toBe("RUNTIME_ERROR");
+  });
+
+  it("carries the BASIC line number that was executing when the error was raised", async () => {
+    const rt = await runBasic('10 PRINT "OK"\n20 PRINT 1 / 0\n30 END');
+    expect(rt.errors).toHaveLength(1);
+    expect(rt.errors[0]?.line).toBe(20);
+    expect(rt.output).toBe("OK\n");
+  });
+});
+
+describe("emit — undefined line targets (build order step 16)", () => {
+  it("rejects a GOTO to a nonexistent line at compile time", async () => {
+    await expect(runBasic("10 GOTO 999\n20 END")).rejects.toThrow(/line 999 does not exist/);
+  });
+
+  it("rejects a GOSUB to a nonexistent line at compile time", async () => {
+    await expect(runBasic("10 GOSUB 999\n20 END")).rejects.toThrow(/line 999 does not exist/);
+  });
+
+  it("rejects an ON...GOTO with a nonexistent target at compile time", async () => {
+    await expect(runBasic("10 ON 1 GOTO 999\n20 END")).rejects.toThrow(/line 999 does not exist/);
+  });
+
+  it("rejects an IF/THEN line-number branch to a nonexistent line at compile time", async () => {
+    await expect(runBasic("10 IF 1 THEN 999\n20 END")).rejects.toThrow(/line 999 does not exist/);
+  });
+
+  it("rejects a RESTORE to a nonexistent line at compile time", async () => {
+    await expect(runBasic("10 DATA 1\n20 RESTORE 999\n30 END")).rejects.toThrow(
+      /line 999 does not exist/,
+    );
+  });
+
+  it("accepts every jump target that does resolve to a real line", async () => {
+    const rt = await runBasic('10 GOTO 20\n20 PRINT "OK"\n30 END');
+    expect(rt.output).toBe("OK\n");
+  });
+});

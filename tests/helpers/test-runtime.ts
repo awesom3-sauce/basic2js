@@ -3,11 +3,12 @@
 // (tests/golden/golden.test.ts) — see CLAUDE.md's "runtime host contract".
 
 import type { BasicRuntime } from "../../src/runtime/interface.js";
+import type { BasicRuntimeError } from "../../src/runtime/shared/errors.js";
 import { SeedableRandom } from "../../src/runtime/shared/random.js";
 
 export class TestRuntime implements BasicRuntime {
   readonly printed: string[] = [];
-  readonly errors: Error[] = [];
+  readonly errors: BasicRuntimeError[] = [];
   private readonly scriptedInput: string[];
   // Fixed default seed (unlike NodeRuntime's wall-clock default) — an
   // accidentally-unseeded test should fail the same way every run, not
@@ -40,7 +41,7 @@ export class TestRuntime implements BasicRuntime {
     this.rng.seed(seed);
   }
 
-  reportError(error: Error): void {
+  reportError(error: BasicRuntimeError): void {
     this.errors.push(error);
   }
 

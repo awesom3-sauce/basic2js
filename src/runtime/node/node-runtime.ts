@@ -20,6 +20,7 @@
 
 import * as readline from "node:readline";
 import type { BasicRuntime } from "../interface.js";
+import type { BasicRuntimeError } from "../shared/errors.js";
 import { SeedableRandom } from "../shared/random.js";
 
 export class NodeRuntime implements BasicRuntime {
@@ -55,8 +56,12 @@ export class NodeRuntime implements BasicRuntime {
     this.rng.seed(seed);
   }
 
-  reportError(error: Error): void {
-    process.stderr.write(`${error.message}\n`);
+  reportError(error: BasicRuntimeError): void {
+    // error.message is already self-descriptive (every prelude.ts helper's
+    // thrown message starts with its own human-readable code text, e.g.
+    // "OVERFLOW: ..." — see __toBasicError), so this doesn't re-prefix
+    // error.code too, which would just read as "OVERFLOW: OVERFLOW: ...".
+    process.stderr.write(`${error.message} (line ${error.line})\n`);
   }
 
   /** Releases the stdin readline interface, if one was ever created. Call after run() completes. */

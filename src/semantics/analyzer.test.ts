@@ -117,3 +117,50 @@ describe("analyze — collects multiple diagnostics across a program", () => {
     expect(diagnostics.map((d) => d.line)).toEqual([10, 20, 30]);
   });
 });
+
+describe("analyze — UNDEFINED_LINE (build order step 16)", () => {
+  it("flags a GOTO to a nonexistent line", () => {
+    const diagnostics = analyzeSource("10 GOTO 999\n20 END");
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]).toMatchObject({ code: "UNDEFINED_LINE", line: 10 });
+    expect(diagnostics[0]?.message).toMatch(/line 999 does not exist/);
+  });
+
+  it("flags a GOSUB to a nonexistent line", () => {
+    expect(analyzeSource("10 GOSUB 999\n20 END")).toHaveLength(1);
+  });
+
+  it("flags only the undefined target in an ON...GOTO/GOSUB list, not the valid one", () => {
+    const diagnostics = analyzeSource("10 ON N GOTO 20, 999\n20 END");
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]?.message).toMatch(/line 999/);
+  });
+
+  it("flags an IF/THEN line-number branch target", () => {
+    expect(analyzeSource("10 IF 1 THEN 999\n20 END")).toHaveLength(1);
+  });
+
+  it("flags an IF/THEN...ELSE line-number branch target", () => {
+    expect(analyzeSource("10 IF 1 THEN 20 ELSE 999\n20 END")).toHaveLength(1);
+  });
+
+  it("does not flag an inline THEN/ELSE statement list (no line-number target to check)", () => {
+    expect(analyzeSource('10 IF 1 THEN PRINT "A" ELSE PRINT "B"')).toEqual([]);
+  });
+
+  it("flags a RESTORE to a nonexistent line", () => {
+    expect(analyzeSource("10 DATA 1\n20 RESTORE 999\n30 END")).toHaveLength(1);
+  });
+
+  it("does not flag a bare RESTORE (no target to check)", () => {
+    expect(analyzeSource("10 DATA 1\n20 RESTORE\n30 END")).toEqual([]);
+  });
+
+  it("allows every jump target that does resolve to a real line", () => {
+    expect(
+      analyzeSource(
+        "10 GOTO 20\n20 GOSUB 30\n30 ON 1 GOTO 40, 50\n40 IF 1 THEN 50 ELSE 20\n50 RETURN",
+      ),
+    ).toEqual([]);
+  });
+});

@@ -9,6 +9,13 @@
 // I/O — never process.stdout/DOM/etc. directly — and has zero import
 // dependencies of its own, so it can be written to a standalone .js file
 // or loaded straight from a source string (see src/util/load-js-module.ts).
+//
+// The dispatch loop's top-level catch (build order step 16) wraps whatever
+// was thrown in `__toBasicError(e, __line)` (a prelude.ts helper) before
+// handing it to `rt.reportError` — this is what turns a bare `throw new
+// Error("OVERFLOW: ...")` from deep inside some prelude helper into a
+// proper `BasicRuntimeError` (message + code + the BASIC line number that
+// was executing), matching `runtime/interface.ts`'s `reportError` contract.
 
 import type { BasicValue } from "../ast/types.js";
 import type { LineIndex, LoweredProgram } from "../ir/program.js";
@@ -48,7 +55,7 @@ export async function run(rt) {
       }
     }
   } catch (e) {
-    await rt.reportError(e);
+    await rt.reportError(__toBasicError(e, __line));
   }
 }
 `;

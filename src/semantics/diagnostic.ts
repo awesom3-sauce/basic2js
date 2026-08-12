@@ -1,11 +1,16 @@
 // A compile-time finding from the semantic analyzer (analyzer.ts), run
 // after parsing and before lowering — see CLAUDE.md's pipeline diagram.
 //
-// Only one code exists as of build order step 15 (`TYPE_MISMATCH`);
-// `UNDEFINED_LINE` joins it in step 16, once GOTO/GOSUB/ON.../IF-line/
-// RESTORE-line target validation lands (see analyzer.ts's header comment).
+// `TYPE_MISMATCH` (build order step 15) and `UNDEFINED_LINE` (build order
+// step 16, for a GOTO/GOSUB/ON.../IF-line/RESTORE-line target that doesn't
+// resolve to a real line number) are both compile-time-only diagnostic
+// codes — contrast `src/runtime/shared/errors.ts`'s `BasicErrorCode`,
+// which covers *runtime* errors instead (`TYPE_MISMATCH` also has a
+// runtime-reachable counterpart there, for the one assignment site — READ —
+// that isn't statically checkable; `UNDEFINED_LINE` never does, since
+// every jump target is fully known at compile time — no computed GOTO).
 
-export type DiagnosticCode = "TYPE_MISMATCH";
+export type DiagnosticCode = "TYPE_MISMATCH" | "UNDEFINED_LINE";
 
 export interface Diagnostic {
   readonly code: DiagnosticCode;

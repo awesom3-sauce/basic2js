@@ -194,7 +194,7 @@ the scaffolding plan (git history); summary:
 Every `src/**` file not yet reached by this build order is a stub with a `TODO` comment pointing at
 the relevant step above — that's the intended landing spot for each piece of real implementation.
 
-**Progress**: steps 1–15 are implemented.
+**Progress**: steps 1–16 are implemented.
 
 - Step 1 (minimal lexer) — `src/lexer/{token,keywords,lex-error,lexer}.ts` + colocated `lexer.test.ts`.
   It's dialect-complete on the keyword/operator table (a lookup table costs nothing to fill in
@@ -506,4 +506,45 @@ backslash in `__val`'s regex (`\\d`, `\\.`); documented prominently in prelude.t
   documented as such in `analyzer.ts`'s header comment rather than silently going beyond the
   step's literal scope.
 
-Next: step 16, error-handling polish + compile-time undefined-line-target validation.
+- Step 16 (error-handling polish + compile-time undefined-line-target validation) — two
+  independent additions sharing one theme: making every compile-time-vs-runtime failure boundary
+  in DIALECT.md's runtime error taxonomy actually real.
+
+  Undefined-line-target validation extended `semantics/analyzer.ts` (already carrying step 15's
+  type-suffix checks) with a second, independent check: collect every `Line.lineNumber` in the
+  program into a set, then validate every `GOTO`/`GOSUB`/`ON...GOTO`/`ON...GOSUB`/`IF`-line-branch/
+  `RESTORE`-line target against it, pushing a new `UNDEFINED_LINE` diagnostic for anything that
+  doesn't resolve. Reusing the same analyzer (and the same `SemanticError`-throwing `compile()`
+  path from step 15) rather than a separate pass means a program with both a type mismatch and a
+  bad jump target gets both diagnostics in one error, not a fix-one-see-the-next loop.
+
+  Error-code taxonomy: `runtime/shared/errors.ts` gained `BasicErrorCode`/`BasicRuntimeError` —
+  the latter is an **interface**, not a class with real `new` call sites, since the object that
+  actually satisfies it is built entirely _inside emitted JS_ (a new prelude.ts helper,
+  `__toBasicError(e, line)`, called from the dispatch loop's top-level catch in emit-program.ts)
+  rather than by any TS code — emitted modules have zero import dependencies, so they can't
+  `instanceof`-check against a real class the way normal TS would. `__toBasicError` classifies the
+  caught error by matching its `message` against each code's own human-readable prefix text (every
+  prelude helper's thrown message already happens to start with one, e.g. `"OVERFLOW: ..."`),
+  falling back to a new `RUNTIME_ERROR` bucket for anything unrecognized (e.g. `RESTORE` to a line
+  with no `DATA` of its own). `SYNTAX` and `UNDEFINED_LINE` were deliberately left out of
+  `BasicErrorCode` — both are compile-time-only failures (`ParseError`/`SemanticError`) that stop
+  compilation before the dispatch loop can ever run, so a runtime error object can never actually
+  carry either code. `runtime/interface.ts`'s `reportError` was narrowed from a plain `Error`
+  parameter to `BasicRuntimeError`, and both `NodeRuntime` and `TestRuntime` updated to match
+  (`NodeRuntime`'s stderr output now includes the line number; `TestRuntime.errors` is now typed
+  `BasicRuntimeError[]`).
+
+  Also added in this step, since it's squarely "error-handling polish" and DIALECT.md's taxonomy
+  already named a code with nothing that could ever raise it: `/`, `\`, and `MOD` now route through
+  new `__div`/`__intDiv`/`__mod` prelude helpers that throw `DIVISION_BY_ZERO` on a zero divisor,
+  instead of silently producing JS's own `Infinity`/`NaN`.
+
+  **Real bug found and fixed** while wiring `NodeRuntime.reportError`'s new formatting: an early
+  draft re-prefixed `error.code` onto an already-self-descriptive `error.message` (every prelude
+  helper's message already starts with its own code text), which would have printed doubled text
+  like `"OVERFLOW: OVERFLOW: 32768 does not fit..."`. Caught before it was ever committed, by
+  actually reading the smoke-test output rather than assuming the formatting was right — fixed by
+  dropping the redundant prefix.
+
+Next: step 17, BrowserRuntime + the web/ React+Vite app.

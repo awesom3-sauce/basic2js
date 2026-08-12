@@ -5,15 +5,13 @@
 // can execute the exact same compiled output — see CLAUDE.md's "runtime
 // host contract" section.
 //
-// Scope note (build order step 5, "minimal NodeRuntime"): `input`/
-// `random`/`seedRandom` are declared now (cheap — the currently-supported
-// PRINT/LET/GOTO subset never calls them) but NodeRuntime only gives them
-// throwaway/placeholder implementations until INPUT (step 9) and RND/
-// RANDOMIZE (step 14) actually land. `reportError` takes a plain `Error`
-// for now; step 16 introduces the richer `BasicRuntimeError` (with an
-// error-code taxonomy) this will be narrowed to, once emitted code has
-// something (division-by-zero, subscript-out-of-range, ...) that actually
-// needs to raise one.
+// Scope note: `input`/`random`/`seedRandom`/`reportError` were all declared
+// back in step 5 as placeholders and are now fully real — INPUT (step 9),
+// RND/RANDOMIZE (step 14), and `reportError`'s `BasicRuntimeError` taxonomy
+// (step 16, see runtime/shared/errors.ts) all landed as their respective
+// steps arrived.
+
+import type { BasicRuntimeError } from "./shared/errors.js";
 
 export interface BasicRuntime {
   print(text: string): void | Promise<void>;
@@ -23,7 +21,7 @@ export interface BasicRuntime {
   random(): number;
   /** RANDOMIZE <n> (step 14). */
   seedRandom(seed: number): void;
-  reportError(error: Error): void | Promise<void>;
+  reportError(error: BasicRuntimeError): void | Promise<void>;
   onStart?(programSource: string): void;
   onEnd?(reason: "end" | "stop" | "error"): void;
   /** Optional hook for a future step-debugging UI; not called by emitted code yet. */
