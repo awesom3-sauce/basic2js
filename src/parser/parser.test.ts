@@ -296,6 +296,14 @@ describe("parse — FOR/NEXT", () => {
   it("parses NEXT with multiple variables", () => {
     expect(firstStatement("10 NEXT I, J")).toEqual({ kind: "NextStmt", variables: ["i", "j"] });
   });
+
+  it("keeps a NEXT variable's type suffix (must match ForStep's varKey — see mangle.ts)", () => {
+    // Real bug found via direct testing (build order step 15): NEXT used
+    // to strip the suffix, so `FOR I% = 1 TO 3: NEXT I%` raised a spurious
+    // "NEXT WITHOUT FOR" at runtime — the stored variable name ("i") never
+    // matched the ForStep's frame key ("i%"). See CLAUDE.md's step 15 notes.
+    expect(firstStatement("10 NEXT I%")).toEqual({ kind: "NextStmt", variables: ["i%"] });
+  });
 });
 
 describe("parse — IF/THEN/ELSE", () => {

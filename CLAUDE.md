@@ -68,10 +68,14 @@ per the build order below):
 
 BASIC's `%`/`!`/`#`/`$` suffixes are tracked in the AST (`TypeSuffix` in `src/ast/types.ts`) and
 enforced **at assignment time** (`LET`, `FOR` loop-variable update, `READ`, `INPUT`, array-element
-store), not on every intermediate expression — matching real BASIC. Coercion helpers live in
-`src/runtime/shared/values.ts`. All BASIC _syntax_ (keywords, identifiers) is case-insensitive and
-normalized; string _literal contents_ are never touched by that normalization. Full semantics are
-in [DIALECT.md](DIALECT.md).
+store), not on every intermediate expression — matching real BASIC. Runtime coercion helpers
+(`__toInt`/`__toStr`) live in `src/emitter/prelude.ts`, wired up via `src/emitter/coerce.ts` —
+`src/runtime/shared/values.ts` stayed a documented stub (see its header comment) rather than
+growing an unused second copy, the same call step 14 made for the pure/stateless string/math
+builtins. Compile-time mismatch checking lives in `src/semantics/analyzer.ts`, using
+`src/ast/infer-type.ts`'s shared type-inference helper. All BASIC _syntax_ (keywords, identifiers)
+is case-insensitive and normalized; string _literal contents_ are never touched by that
+normalization. Full semantics are in [DIALECT.md](DIALECT.md).
 
 ## Conventions
 
@@ -190,7 +194,7 @@ the scaffolding plan (git history); summary:
 Every `src/**` file not yet reached by this build order is a stub with a `TODO` comment pointing at
 the relevant step above — that's the intended landing spot for each piece of real implementation.
 
-**Progress**: steps 1–14 are implemented.
+**Progress**: steps 1–15 are implemented.
 
 - Step 1 (minimal lexer) — `src/lexer/{token,keywords,lex-error,lexer}.ts` + colocated `lexer.test.ts`.
   It's dialect-complete on the keyword/operator table (a lookup table costs nothing to fill in
@@ -449,4 +453,57 @@ backslash in `__val`'s regex (`\\d`, `\\.`); documented prominently in prelude.t
   guess path to it, then generating `expected.txt` from an actual compiler run (never
   hand-computed) — same verified-against-the-real-compiler workflow as every other golden program.
 
-Next: step 15, type-suffix enforcement.
+- Step 15 (type-suffix enforcement) — the pipeline gained its first real `src/semantics/` stage:
+  `analyzer.ts`'s `analyze(program): Diagnostic[]` runs after parsing, before lowering. A
+  key finding that simplified the whole step: BASIC's `%`/`!`/`#`/`$` suffix is part of an
+  identifier's own spelling (`A`/`A%`/`A$` are three distinct variables — see DIALECT.md), so
+  every check site's type is already fully recoverable locally, with **no symbol table needed** —
+  `symbol-table.ts`'s originally-sketched stub stayed a stub, its header comment now explaining
+  why. The actual type-inference logic (`ast/infer-type.ts`'s `inferExpressionType`) was extracted
+  from `emit-print.ts`'s pre-existing local `inferValueType` heuristic into a new shared
+  `src/ast/` module — both the analyzer and the emitter need exactly the same "what type does this
+  expression produce" answer, so this lives at the one layer they both already depend on rather
+  than either depending on the other or duplicating the logic. `compile()` (`src/index.ts`) throws
+  a new `SemanticError` (`semantics/semantic-error.ts`) when `analyze()` finds any diagnostics,
+  aggregating all of them into one message — a deliberate departure from `CompileResult`'s original
+  step-5-era TODO comment, which had sketched a non-throwing `diagnostics: Diagnostic[]` field:
+  proceeding to lower/emit a program known to misbehave isn't better than refusing to compile, the
+  same way a syntax error already isn't, and throwing meant the CLI needed **zero** changes (its
+  existing generic `catch (err) { console.error(...); exitCode = 1; }` in both commands already
+  handles any thrown `Error` uniformly — verified end-to-end via the built CLI).
+
+  Runtime coercion (the other half of "compile-time + runtime coercion/overflow") followed the
+  same "logic lives in prelude.ts, not a src/runtime/shared/*.ts TS mirror" pattern step 14
+  established for the pure/stateless builtins: two new prelude helpers, `__toInt` (round-half-
+  away-from-zero — **not** JS's native `Math.round`, which rounds half toward `+Infinity` and
+  would give `-2` instead of BASIC's `-3` for `Math.round(-2.5)` — then range-checked against
+  `[-32768, 32767]`, throwing `OVERFLOW` if out of range) and `__toStr` (type-checks the value is
+  actually a string, throwing `TYPE MISMATCH` if not). A new `emit-statements.ts`-and-`emit-read.ts`
+  -shared `coerce.ts` wraps a value expression's emitted JS with the right helper call based on the
+  target's suffix (`!`/`#`/no-suffix need no wrapping — plain `number` passthroughs). Wired into
+  all five assignment sites DIALECT.md names: `LET` (scalar and array-element), `FOR`'s initial
+  assignment _and_ every `NEXT`'s increment (the `forStack` frame now carries an `isInt` flag so a
+  `%`-suffixed loop variable stays valid across the whole loop, not just its first iteration),
+  `READ`, and `INPUT` (whose existing `__inputCoerce` helper gained a `suffix` parameter — replacing
+  its old boolean `isString` — so a `%`-suffixed target's parsed number also gets `__toInt`'s
+  round+overflow treatment on top of the pre-existing "malformed input → 0" simplification, which
+  stays exactly as before per DIALECT.md's Open Decisions).
+
+  **Real bug found and fixed** (caught by direct smoke-testing before formal tests, not by
+  reasoning about it in advance): `FOR I% = 1 TO 3: NEXT I%` raised a spurious `NEXT WITHOUT FOR`.
+  Root cause: `parseNextStmt` was stripping a named `NEXT` variable's type suffix
+  (`splitSuffix(...).name`), so the stored variable string ("i") never matched a `ForStep`'s
+  `varKey`-formatted frame key ("i%") — `__nextFor`'s `frame.key === variable` lookup always
+  failed for any suffixed loop variable explicitly named in its `NEXT`. This bug predates step 15
+  (it's a step-7/13-era parser bug, not something step 15's changes introduced) but had never
+  surfaced before, since no prior golden program or test used a suffixed loop variable together
+  with an explicit `NEXT <var>`. Fixed by keeping the full name+suffix spelling.
+
+  DIM's array-size expressions, `IF`/`WHILE` conditions, `ON...GOTO`/`ON...GOSUB` selectors, and
+  `RANDOMIZE`'s seed all also gained compile-time "must be numeric" checks in the analyzer — not
+  strictly required by DIALECT.md's "enforced at assignment time" wording (none of these are
+  assignment sites), but cheap, valuable bonus coverage once `inferExpressionType` existed, and
+  documented as such in `analyzer.ts`'s header comment rather than silently going beyond the
+  step's literal scope.
+
+Next: step 16, error-handling polish + compile-time undefined-line-target validation.

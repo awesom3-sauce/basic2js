@@ -21,6 +21,7 @@
 // Randomize calls `rt.seedRandom` synchronously.
 
 import type { Step } from "../ir/program.js";
+import { coerceForSuffix } from "./coerce.js";
 import { emitExpression } from "./emit-expressions.js";
 import { emitPrintCall } from "./emit-print.js";
 import { emitInputCall } from "./emit-input.js";
@@ -45,7 +46,10 @@ function emitStepBody(step: Step, stepIndex: number): string {
 
     case "Let": {
       const key = JSON.stringify(varKey(step.target.name, step.target.suffix));
-      const value = emitExpression(step.value);
+      // Type-suffix coercion (build order step 15) happens here, at the
+      // assignment site, not on `step.value` itself — matching DIALECT.md's
+      // "enforced at assignment time, not on every intermediate expression".
+      const value = coerceForSuffix(step.target.suffix, emitExpression(step.value));
       if (step.target.kind === "ArrayElement") {
         const indices = `[${step.target.indices.map((e) => emitExpression(e)).join(", ")}]`;
         const isString = step.target.suffix === "$";
@@ -64,18 +68,24 @@ function emitStepBody(step: Step, stepIndex: number): string {
       const key = JSON.stringify(varKey(step.variable, step.suffix));
       const stepExpr = step.step === undefined ? "1" : emitExpression(step.step);
       const bodyPc = stepIndex + 1;
+      const isInt = step.suffix === "%";
       // start/end/step are all evaluated first, using whatever value the
       // loop variable held *before* this FOR (relevant if e.g. `end`
       // itself references the loop variable, as in `FOR I = 1 TO I * 2`)
       // — only once all three are computed does V[key] get reassigned.
       // (No extra `{ }` needed around these `const`s: emitStep already
-      // wraps this whole case body in its own block.)
+      // wraps this whole case body in its own block.) `isInt` (build order
+      // step 15) travels with the forStack frame so __nextFor's per-
+      // iteration increment can re-round/overflow-check a "%"-suffixed
+      // loop variable the same way this initial assignment does — a
+      // string-suffixed loop variable is rejected at compile time instead
+      // (see semantics/analyzer.ts), so only "%" needs handling here.
       return (
         `const __start = ${emitExpression(step.start)}; ` +
         `const __limit = ${emitExpression(step.end)}; ` +
         `const __step = ${stepExpr}; ` +
-        `V[${key}] = __start; ` +
-        `forStack.push({ key: ${key}, limit: __limit, step: __step, bodyPc: ${bodyPc} }); ` +
+        `V[${key}] = ${coerceForSuffix(step.suffix, "__start")}; ` +
+        `forStack.push({ key: ${key}, limit: __limit, step: __step, bodyPc: ${bodyPc}, isInt: ${isInt} }); ` +
         `pc = ${bodyPc}; break;`
       );
     }

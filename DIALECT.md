@@ -6,7 +6,7 @@ structured dialect like QBasic. It is written as a spec-as-built: keep it in syn
 and emitter as each feature lands (see CLAUDE.md's staged build order), and use it as the
 reference when writing golden tests.
 
-Status: as of build order step 14, every construct documented below is implemented (see
+Status: as of build order step 15, every construct documented below is implemented (see
 CLAUDE.md's "Progress" notes for exactly which build-order step landed each one) — this file
 describes the compiler as it actually behaves today, not a target spec for future work.
 
@@ -89,8 +89,9 @@ describes the compiler as it actually behaves today, not a target spec for futur
   literal — unquoted bare-word string data (`DATA JOHN, 25`, valid in real BASIC) isn't supported,
   see Open Decisions.
 - `READ var[, var...]` — advances a shared pointer into the `DATA` pool. Unlike `INPUT`, `DATA`
-  values are already typed from parsing, so `READ` does a raw assignment with no suffix
-  coercion/validation (deferred to step 15/16, same as `LET`). Reading past the end is an
+  values are already typed from parsing; `READ` still applies the same runtime `%`/`$`-suffix
+  coercion every other assignment site does (see Type-suffix semantics), but gets no *compile-time*
+  mismatch check the way `LET` does — see that section for why. Reading past the end is an
   `OUT OF DATA` runtime error.
 - `RESTORE [line-number]` — resets the `DATA` pointer to the start of the pool, or to the first
   `DATA` value originating from the given line (a runtime error if that line has no `DATA` of its
@@ -155,21 +156,41 @@ see PRINT above and Open Decisions): `TAB(col)` (pads with spaces so the next se
 column `col`, 1-indexed; contributes nothing if already at/past that column), `SPC(n)` (always
 contributes exactly `n` literal spaces).
 
-## Type-suffix semantics
+## Type-suffix semantics (implemented build order step 15)
 
 Coercion/truncation is enforced **at assignment time** (`LET`, `FOR`-variable update, `READ`,
 `INPUT`, array-element store), not on every intermediate expression — sub-expressions compute in
-whatever precision naturally arises; only the destination truncates/rounds.
+whatever precision naturally arises; only the destination truncates/rounds. A `FOR`-variable
+update happens twice per loop: once when the `FOR` first assigns `start`, and again on every
+`NEXT`'s increment (so a `%`-suffixed loop variable stays a valid integer across the whole loop,
+not just its first iteration).
 
 - `%` (integer): round-half-away-from-zero, then range-check `[-32768, 32767]`. Out-of-range
-  throws an `OVERFLOW` runtime error (see Open Decisions — no silent wraparound).
+  throws an `OVERFLOW` runtime error (see Open Decisions — no silent wraparound). Implemented as
+  `src/emitter/prelude.ts`'s `__toInt` — note this is round-**half-away-from-zero**, not JS's
+  native `Math.round` (which rounds half toward `+Infinity`, giving the wrong answer for negative
+  halves: `Math.round(-2.5)` is `-2`, not the `-3` BASIC's rule wants).
 - `!` / `#` (single/double): both map to JS's native `number`; kept as distinct named coercions in
-  code for clarity and future precision tuning, not because v1 enforces different precision.
-- `$` (string): identity coercion, but type-checks that the source is actually a string.
+  code for clarity and future precision tuning, not because v1 enforces different precision. No
+  runtime wrapping happens for these at all (or for no-suffix, which defaults to `!`) — a plain
+  passthrough.
+- `$` (string): identity coercion, but type-checks that the source is actually a string (raises a
+  runtime `TYPE MISMATCH` if not — implemented as `__toStr`).
 - String/number mismatches (e.g. `A$ = A$ + 5`) are caught by a **compile-time** semantic pass
-  wherever the suffix is syntactically known — which is nearly always, since the suffix is part of
-  every identifier's spelling. (A deliberate DX improvement over real interpreters, which only
-  catch this at runtime.)
+  (`src/semantics/analyzer.ts`'s `analyze()`) wherever the suffix is syntactically known — which is
+  nearly always, since the suffix is part of every identifier's spelling. Checked sites: `LET`'s
+  target vs. value (including array-element targets), a `FOR` loop variable's suffix (rejects
+  `$`) and its `start`/`end`/`STEP` expressions, an `IF`/`WHILE` condition, an `ON...GOTO`/
+  `ON...GOSUB` selector, a `DIM`'s size expressions, and a `RANDOMIZE` seed — all must be numeric
+  (except `LET`'s own target/value pair, which must simply _match_). **Not** checked at compile
+  time: `READ`/`INPUT` targets — a `READ`'s source value comes from the `DATA` pool, whose
+  contents at any given `READ` can depend on runtime `RESTORE`/control flow rather than just
+  source order, so a general compile-time correlation isn't feasible; `INPUT`'s source is
+  user-typed text, never statically known at all. Both still get the same _runtime_ coercion as
+  everything else. Any diagnostic found makes `compile()` throw a `SemanticError` immediately
+  (aggregating every diagnostic found, not just the first) rather than proceeding to emit code
+  known to misbehave — see `src/semantics/semantic-error.ts`'s header comment for why a throwing
+  design was chosen over a non-throwing `diagnostics` field.
 
 ## Runtime error taxonomy
 
@@ -239,8 +260,12 @@ revisited explicitly** — if you change one, update this section and any golden
   dialects vary on the exact semantics here and it's a rare construct in practice; revisit only if
   a real-world program needs different behavior.
 - **`INPUT` numeric parsing on invalid input**: falls back to `0` for unparseable numeric input,
-  rather than real BASIC's `?Redo from start` re-prompt loop. Full validation-with-retry is
-  deferred to step 15/16 alongside the rest of type-suffix enforcement.
+  rather than real BASIC's `?Redo from start` re-prompt loop. This is a deliberate, permanent v1
+  scoping decision, not a "deferred" TODO: step 15's type-suffix work added `%`-suffix
+  round+overflow checking on top of the parsed number, but left this specific simplification
+  alone. A real re-prompt loop would need the runtime's `input()` call site to loop, which is a
+  bigger structural change than type-suffix enforcement's scope — revisit only if a real-world
+  `.bas` listing actually depends on the retry behavior.
 - **Leading `INPUT;` form**: not supported (out of scope) — this is the syntax for suppressing the
   newline echoed after the user's response, a formatting nuance distinct from the prompt's own
   `;`/`,` separator, which _is_ fully supported.

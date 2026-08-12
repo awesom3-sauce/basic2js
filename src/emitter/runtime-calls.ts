@@ -53,11 +53,6 @@ export const RUNTIME_CALLS: ReadonlyMap<string, EmitCall> = new Map<string, Emit
   ["tan", (a) => `Math.tan(${a[0]})`],
 ]);
 
-/** True for builtins whose return type is a BASIC string (spelling ends in "$") — used by emit-print.ts's PRINT-value type inference. */
-export function builtinReturnsString(calleeKey: string): boolean {
-  return calleeKey.endsWith("$");
-}
-
 // Dev-time self-check, exercised by runtime-calls.test.ts: every
 // BUILTIN_FUNCTIONS key must have a RUNTIME_CALLS entry, and vice versa.
 export function builtinKeysMatch(): boolean {

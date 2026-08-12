@@ -290,7 +290,14 @@ function parseNextStmt(cursor: TokenCursor): NextStmt {
   if (!isStatementEnd(cursor)) {
     for (;;) {
       const token = cursor.expect("Identifier");
-      variables.push(splitSuffix(stringValue(token)).name);
+      // Keep the full name+suffix spelling (NOT splitSuffix(...).name) —
+      // this has to match a ForStep's varKey-formatted `key` (name+suffix,
+      // see mangle.ts) for __nextFor's `frame.key === variable` lookup to
+      // ever succeed for a suffixed loop variable. Real bug found via
+      // direct testing: `FOR I% = 1 TO 3: NEXT I%` raised a spurious
+      // "NEXT WITHOUT FOR" because the stored variable name ("i") never
+      // matched the frame's key ("i%") — see CLAUDE.md's step 15 notes.
+      variables.push(stringValue(token));
       if (!cursor.match("Operator", ",")) break;
     }
   }

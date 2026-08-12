@@ -7,8 +7,9 @@
 // that needed shared runtime logic since (FOR/NEXT's __nextFor, GOSUB's
 // __return and ON...GOTO/GOSUB's __onJumpTarget, INPUT's __inputCoerce,
 // DIM/array access's __arrAlloc/__arrEnsure/__arrIndex/__arrGet/__arrSet,
-// DATA/READ/RESTORE's __readNext/__restoreTarget, and (build order step 14)
-// the string/math builtin functions and PRINT's TAB()/SPC() helpers).
+// DATA/READ/RESTORE's __readNext/__restoreTarget, (build order step 14) the
+// string/math builtin functions and PRINT's TAB()/SPC() helpers, and (build
+// order step 15) __toInt/__toStr for %/$-suffix assignment-time coercion.
 // Arrays are represented as { dims: number[], data: T[] } — a flat array
 // with a manually computed linear index, not nested arrays, so 1D and 2D
 // (and, not that DIALECT.md's v1 scope asks for it, N-D) access share the
@@ -60,6 +61,7 @@ function __nextFor(V, forStack, variable, fallthroughPc) {
     if (variable === null || frame.key === variable) break;
   }
   var newValue = V[frame.key] + frame.step;
+  if (frame.isInt) newValue = __toInt(newValue); // build order step 15
   V[frame.key] = newValue;
   var continuing = frame.step >= 0 ? newValue <= frame.limit : newValue >= frame.limit;
   if (continuing) {
@@ -80,11 +82,12 @@ function __onJumpTarget(selector, targets) {
   if (n < 1 || n > targets.length) return null;
   return targets[n - 1];
 }
-function __inputCoerce(raw, isString) {
+function __inputCoerce(raw, suffix) {
   var trimmed = raw.trim();
-  if (isString) return trimmed;
+  if (suffix === "$") return trimmed;
   var n = Number(trimmed);
-  return isNaN(n) ? 0 : n;
+  if (isNaN(n)) n = 0; // known simplification: malformed input -> 0, not "?Redo from start"
+  return suffix === "%" ? __toInt(n) : n; // build order step 15
 }
 function __arrAlloc(dims, isString) {
   var size = 1;
@@ -203,5 +206,25 @@ function __tabTo(currentLength, col) {
 }
 function __spc(n) {
   return " ".repeat(Math.max(0, Math.trunc(n)));
+}
+function __toInt(n) {
+  // %-suffix coercion (build order step 15): round-half-away-from-zero
+  // (NOT JS's native Math.round, which rounds half toward +Infinity —
+  // Math.round(-2.5) is -2, not the -3 BASIC's "away from zero" rule
+  // wants), then range-check. Out-of-range throws OVERFLOW rather than
+  // silently wrapping around (see DIALECT.md's Open Decisions). Distinct
+  // from INT()'s Math.floor (runtime-calls.ts) — real GW-BASIC also
+  // differs between the builtin function and suffix-driven coercion.
+  var rounded = n < 0 ? -Math.round(-n) : Math.round(n);
+  if (rounded < -32768 || rounded > 32767) {
+    throw new Error("OVERFLOW: " + n + " does not fit in a % (integer) variable");
+  }
+  return rounded;
+}
+function __toStr(s) {
+  if (typeof s !== "string") {
+    throw new Error("TYPE MISMATCH: expected a string value");
+  }
+  return s;
 }
 `.trim();

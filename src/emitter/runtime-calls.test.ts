@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { BUILTIN_FUNCTIONS } from "../parser/builtins.js";
-import { builtinKeysMatch, builtinReturnsString, RUNTIME_CALLS } from "./runtime-calls.js";
+import { builtinKeysMatch, RUNTIME_CALLS } from "./runtime-calls.js";
 
 describe("runtime-calls / builtins key-set consistency", () => {
   it("RUNTIME_CALLS has exactly the same keys as BUILTIN_FUNCTIONS", () => {
@@ -17,18 +17,5 @@ describe("runtime-calls / builtins key-set consistency", () => {
     for (const key of RUNTIME_CALLS.keys()) {
       expect(BUILTIN_FUNCTIONS.has(key)).toBe(true);
     }
-  });
-});
-
-describe("builtinReturnsString", () => {
-  it("is true for $-suffixed builtin names", () => {
-    expect(builtinReturnsString("left$")).toBe(true);
-    expect(builtinReturnsString("str$")).toBe(true);
-  });
-
-  it("is false for non-$-suffixed builtin names", () => {
-    expect(builtinReturnsString("len")).toBe(false);
-    expect(builtinReturnsString("int")).toBe(false);
-    expect(builtinReturnsString("rnd")).toBe(false);
   });
 });

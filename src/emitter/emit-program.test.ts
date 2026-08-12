@@ -825,3 +825,64 @@ describe("emit — builtin/array name interaction", () => {
     expect(rt.output).toBe(" 99 \n 2 \n");
   });
 });
+
+describe("emit — type-suffix coercion (%/$ at assignment time)", () => {
+  it("rounds a %-suffixed LET target half-away-from-zero", async () => {
+    const rt = await runBasic("10 A% = 2.5\n20 PRINT A%\n30 B% = -2.5\n40 PRINT B%\n50 END");
+    expect(rt.output).toBe(" 3 \n-3 \n");
+  });
+
+  it("allows a %-suffixed value at the exact overflow boundary", async () => {
+    const rt = await runBasic("10 A% = 32767\n20 PRINT A%\n30 B% = -32768\n40 PRINT B%\n50 END");
+    expect(rt.output).toBe(" 32767 \n-32768 \n");
+  });
+
+  it("raises OVERFLOW just past the boundary, on both ends", async () => {
+    const high = await runBasic("10 A% = 32768\n20 END");
+    expect(high.errors).toHaveLength(1);
+    expect(high.errors[0]?.message).toMatch(/OVERFLOW/);
+
+    const low = await runBasic("10 A% = -32769\n20 END");
+    expect(low.errors).toHaveLength(1);
+    expect(low.errors[0]?.message).toMatch(/OVERFLOW/);
+  });
+
+  it("applies the same overflow check to a %-suffixed array element", async () => {
+    const rt = await runBasic("10 DIM A%(3)\n20 A%(1) = 99999\n30 END");
+    expect(rt.errors).toHaveLength(1);
+    expect(rt.errors[0]?.message).toMatch(/OVERFLOW/);
+  });
+
+  it("re-coerces a %-suffixed FOR loop variable on every NEXT increment", async () => {
+    const rt = await runBasic("10 FOR I% = 1 TO 3 STEP 0.5\n20 PRINT I%\n30 NEXT I%\n40 END");
+    // 1 -> 1.5 rounds to 2 -> 2.5 rounds to 3 -> 3.5 rounds to 4, exceeds 3, loop ends.
+    expect(rt.output).toBe(" 1 \n 2 \n 3 \n");
+  });
+
+  it("applies the overflow check to a %-suffixed INPUT target", async () => {
+    const rt = await runBasic("10 INPUT X%\n20 PRINT X%\n30 END", ["40000"]);
+    expect(rt.errors).toHaveLength(1);
+    expect(rt.errors[0]?.message).toMatch(/OVERFLOW/);
+  });
+
+  it("rounds a %-suffixed READ target from a fractional DATA value", async () => {
+    const rt = await runBasic("10 DATA 2.5\n20 READ A%\n30 PRINT A%\n40 END");
+    expect(rt.output).toBe(" 3 \n");
+  });
+
+  it("raises a runtime TYPE MISMATCH for a $-suffixed READ target given numeric DATA", async () => {
+    // Not caught at compile time (READ's source values aren't statically
+    // correlated with targets — see semantics/analyzer.ts) but still
+    // caught at runtime, unlike LET's equivalent case (which is instead a
+    // compile-time SemanticError, since LET's source type is always
+    // statically known).
+    const rt = await runBasic("10 DATA 5\n20 READ A$\n30 END");
+    expect(rt.errors).toHaveLength(1);
+    expect(rt.errors[0]?.message).toMatch(/TYPE MISMATCH/);
+  });
+
+  it("does not affect !/#/no-suffix targets (plain number passthrough)", async () => {
+    const rt = await runBasic("10 A = 2.5\n20 PRINT A\n30 B# = 2.5\n40 PRINT B#\n50 END");
+    expect(rt.output).toBe(" 2.5 \n 2.5 \n");
+  });
+});
