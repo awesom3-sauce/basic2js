@@ -1,5 +1,7 @@
 # basic2js
 
+[![CI](https://github.com/awesom3-sauce/basic2js/actions/workflows/ci.yml/badge.svg)](https://github.com/awesom3-sauce/basic2js/actions/workflows/ci.yml)
+
 A sophisticated, functionally **1:1** converter from classic line-numbered BASIC
 (GW-BASIC/Applesoft/Dartmouth style) to JavaScript — including full support for unstructured
 `GOTO`/`GOSUB` control flow, via an async "virtual program counter" dispatch loop. See
