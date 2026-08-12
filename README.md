@@ -6,16 +6,18 @@ A sophisticated, functionally **1:1** converter from classic line-numbered BASIC
 [DIALECT.md](DIALECT.md) for the exact supported syntax and [CLAUDE.md](CLAUDE.md) for the
 architecture and build order.
 
-> **Status**: early scaffolding — the repo structure, docs, and tooling are set up; the compiler
-> pipeline itself (lexer → parser → emitter → runtime) is being built incrementally per
-> [CLAUDE.md](CLAUDE.md#staged-build-order). Nothing runs end-to-end yet.
+> **Status**: the full compiler pipeline (lexer → parser → semantic analyzer → lowering → emitter)
+> and both runtimes (Node CLI, browser) are implemented and working end-to-end, per
+> [CLAUDE.md](CLAUDE.md#staged-build-order)'s staged build order (currently through step 17 of 20).
+> Remaining steps are CLI polish and a final docs pass — see CLAUDE.md's "Progress" notes for
+> exactly what's landed so far.
 
 ## Quickstart
 
 ```bash
 npm install
 npm run build
-node dist/cli/index.js run tests/golden/programs/fizzbuzz/program.bas   # once the pipeline + this fixture exist
+node dist/cli/index.js run tests/golden/programs/fizzbuzz/program.bas
 ```
 
 During development, skip the build step with `tsx`:

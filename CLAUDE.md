@@ -55,10 +55,11 @@ per-statement lowering rules (especially `IF`/`THEN`/`ELSE` clause-extends-to-en
 
 `src/runtime/interface.ts` defines `BasicRuntime` — `print`, `input` (the async suspension point),
 `random`/`seedRandom`, `reportError`, plus optional lifecycle hooks. Emitted JS only ever talks to
-this interface, never to `process.stdout`/DOM/etc. directly. Three implementations exist (or will,
-per the build order below):
+this interface, never to `process.stdout`/DOM/etc. directly. Three implementations exist:
 
-- `src/runtime/node/node-runtime.ts` — stdin/stdout via `node:readline/promises`. Backs the CLI.
+- `src/runtime/node/node-runtime.ts` — stdin/stdout via plain `node:readline` (not
+  `readline/promises` — see its own header comment for why), driven via its async iterator. Backs
+  the CLI.
 - `src/runtime/browser/browser-runtime.ts` — framework-agnostic, driven by callback hooks. Backed
   by `web/src/engine/useBrowserRuntime.ts` for the React UI.
 - `tests/helpers/test-runtime.ts` — in-memory, captures print output, replays scripted stdin.
@@ -194,7 +195,7 @@ the scaffolding plan (git history); summary:
 Every `src/**` file not yet reached by this build order is a stub with a `TODO` comment pointing at
 the relevant step above — that's the intended landing spot for each piece of real implementation.
 
-**Progress**: steps 1–16 are implemented.
+**Progress**: steps 1–17 are implemented.
 
 - Step 1 (minimal lexer) — `src/lexer/{token,keywords,lex-error,lexer}.ts` + colocated `lexer.test.ts`.
   It's dialect-complete on the keyword/operator table (a lookup table costs nothing to fill in
@@ -547,4 +548,59 @@ backslash in `__val`'s regex (`\\d`, `\\.`); documented prominently in prelude.t
   actually reading the smoke-test output rather than assuming the formatting was right — fixed by
   dropping the redundant prefix.
 
-Next: step 17, BrowserRuntime + the web/ React+Vite app.
+- Step 17 (BrowserRuntime + the web/ React+Vite app) — `src/runtime/browser/browser-runtime.ts`'s
+  `BrowserRuntime` follows the exact same shape as `NodeRuntime`/`TestRuntime` (implements
+  `BasicRuntime`, delegates `random`/`seedRandom` to `SeedableRandom`) but reports every observable
+  effect through three constructor-supplied callbacks (`onPrint`/`onInput`/`onError`) instead of
+  touching stdio or the DOM directly — kept genuinely framework-agnostic (no React import) so a
+  future non-React UI rewrite could reuse it verbatim, per the UI replaceability contract.
+  `web/src/engine/useBrowserRuntime.ts` is the one file that bridges it to React state: a `run(js)`
+  callback constructs a fresh `BrowserRuntime` per invocation (never shared across runs, matching
+  `BasicRuntime`'s "no cross-invocation state" contract from the runtime host section above),
+  wiring `onInput` to a `Promise` whose `resolve` is stashed in a ref until `submitInput` (called
+  from the `InputPrompt` component when the user submits a value) fires it.
+
+  `web/src/engine/compileProgram.ts` adapts `compile()`'s throw-on-error design (`LexError`/
+  `ParseError`/`SemanticError`) into a `{ ok: true, js } | { ok: false, message }` discriminated
+  union — the one place in the UI layer that needs a try/catch, so no component does.
+  `importModuleFromSource` (`src/util/load-js-module.ts`, already written for the CLI/tests back in
+  step 5) turned out fully portable to the browser as-is: dynamic `import()` of a `data:` URL needs
+  no Node-specific API, so `useBrowserRuntime.ts` reuses it unmodified rather than needing a
+  browser-specific loader.
+
+  All 7 components got real implementations against their step-scaffolded prop shapes; `App.tsx`
+  composes them into a 3-pane layout (source / output+input+error / generated JS) with zero
+  compiler logic of its own, matching the UI replaceability contract. `web/src/examples/` (mirroring
+  `tests/golden/programs/`, populated now rather than at its originally-speculated step 18, since
+  `ExamplesMenu` needed real content to be useful) holds a byte-for-byte copy of each golden
+  program's `.bas` source, imported via Vite's `?raw` suffix; a new `tests/web-examples-sync.test.ts`
+  (in the root suite, not a web-workspace test — web/ has no vitest of its own) asserts the two
+  never drift apart by reading both directly via `node:fs`, since Vite's `?raw` loader only resolves
+  under Vite's own transform pipeline, not plain Node/Vitest.
+
+  Verified end-to-end via a live browser session (not just `tsc`/build passing): loaded the
+  bundled examples, ran `goto-basics` (GOTO/backward-jump output correct), ran `guess-number`
+  (confirmed `mulberry32` with the same `RANDOMIZE 42` seed produces the identical target number
+  61 in the browser as in Node/the CLI — real cross-environment determinism, not just a shared code
+  path), exercised the `InputPrompt` round-trip, and triggered both a compile-time error (a real
+  `ParseError`, surfaced via `ErrorPanel`) and a runtime error (division by zero, with the BASIC
+  line number surfaced) to confirm `ErrorPanel` renders both paths correctly.
+
+  **Real bug found and fixed, unrelated to any application code**: `web/package.json` had drifted
+  to `vite@^6.0.5` while `vitest` (a root devDependency) pins `vite@^5.0.0` internally — since `@vitejs/plugin-react` supports both majors, npm's workspace hoisting correctly kept two separate
+  `vite` installs (one hoisted to the root for `vitest`, one nested in `web/node_modules` for the
+  web app's own devDependency), but that meant `web/vite.config.ts`'s `defineConfig`/`react()` call
+  was type-checked against two structurally-incompatible `Plugin`/`PluginOption` types from two
+  different `vite` package identities, breaking `web`'s `tsc --noEmit`. Not a bug in any code this
+  step wrote — a pre-existing latent version-skew landmine in the original scaffold's `web/package.json`
+  that simply hadn't been exercised until this step's `npx tsc --noEmit` in `web/` was the first
+  time anything actually typechecked against `vite.config.ts`. Fixed by pinning `web/package.json`'s
+  `vite` devDependency to `^5.4.11` (matching `vitest`'s own range) and regenerating the lockfile,
+  so npm hoists a single shared `vite` instance for the whole workspace instead of two.
+
+  `web/node_modules`'s pre-existing stale local install (present since initial scaffolding, before
+  this step's `npm install` at the repo root) also had to be removed for the workspace hoisting to
+  take effect — a real, if mundane, environment-setup finding worth recording since it wasn't
+  obvious from `package.json` alone (the version skew was in `package-lock.json`'s resolved tree).
+
+Next: step 19, CLI polish (`--standalone`, `--emit-ast`, `--emit-steps`, help text, exit codes).

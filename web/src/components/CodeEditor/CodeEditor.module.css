@@ -1,3 +1,28 @@
 /* Scoped styles for CodeEditor only. Reads design tokens from
    ../../styles/tokens.css's CSS custom properties — never hardcode colors/
    spacing here directly, so a future reskin only means editing tokens.css. */
+
+.editor {
+  flex: 1;
+  resize: none;
+  width: 100%;
+  min-height: 0;
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-base);
+  line-height: 1.5;
+  tab-size: 2;
+}
+
+.editor:focus {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -1px;
+}
+
+.editor::placeholder {
+  color: var(--color-text-muted);
+}

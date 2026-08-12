@@ -1,2 +1,18 @@
 /* Scoped styles for ExamplesMenu only. Reads design tokens from
    ../../styles/tokens.css. */
+
+.select {
+  font: inherit;
+  font-size: var(--font-size-base);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
