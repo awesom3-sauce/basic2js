@@ -3,6 +3,8 @@
 import type { Token } from "../lexer/token.js";
 import type { Line, Program } from "../ast/program.js";
 import type { Statement } from "../ast/statements.js";
+import type { Dialect } from "../dialect.js";
+import { DEFAULT_DIALECT } from "../dialect.js";
 import { ParseError } from "./errors.js";
 import { TokenCursor } from "./token-cursor.js";
 import { parseStatement } from "./parse-statements.js";
@@ -14,9 +16,13 @@ import { numberValue } from "./token-value.js";
  * split into colon-separated statements. Lines are returned sorted by
  * line number; duplicate line numbers are a ParseError (classic BASIC
  * listings don't allow them).
+ *
+ * `dialect` (see src/dialect.ts) gates dialect-specific statements/builtins
+ * (currently just the GW-BASIC file I/O extension) — see TokenCursor,
+ * which carries it through to every parse function that needs it.
  */
-export function parse(tokens: readonly Token[]): Program {
-  const cursor = new TokenCursor(tokens);
+export function parse(tokens: readonly Token[], dialect: Dialect = DEFAULT_DIALECT): Program {
+  const cursor = new TokenCursor(tokens, dialect);
   const lines: Line[] = [];
   const seenLineNumbers = new Set<number>();
 

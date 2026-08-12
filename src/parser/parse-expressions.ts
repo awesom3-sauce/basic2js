@@ -17,10 +17,13 @@
 // `builtins.ts`'s BUILTIN_FUNCTIONS table: a name+suffix that matches a
 // known builtin parses as a CallExpr (with an arity check against the same
 // table); anything else parses as an ArrayRef, as before. See builtins.ts's
-// header comment for the "only reserved in call position" scope decision.
+// header comment for the "only reserved in call position" scope decision,
+// and its GWBASIC_ONLY_BUILTINS for the (currently one-member) subset
+// that's only reserved when the "gwbasic" dialect is active (see
+// src/dialect.ts).
 
 import type { Expression } from "../ast/expressions.js";
-import { lookupBuiltin } from "./builtins.js";
+import { GWBASIC_ONLY_BUILTINS, lookupBuiltin } from "./builtins.js";
 import { splitSuffix } from "./identifier.js";
 import { lookupBinaryOp, UNARY_MINUS_PRECEDENCE, UNARY_NOT_PRECEDENCE } from "./precedence.js";
 import { numberValue, stringValue } from "./token-value.js";
@@ -76,7 +79,14 @@ function parsePrimary(cursor: TokenCursor): Expression {
     if (cursor.check("Operator", "(")) {
       const calleeKey = name + suffix;
       const builtin = lookupBuiltin(calleeKey);
-      if (builtin !== undefined) {
+      // A GW-BASIC-only builtin (currently just EOF) is only reserved when
+      // that dialect is active (see src/dialect.ts) — otherwise it's
+      // treated exactly as if it weren't in the registry at all, falling
+      // through to the ordinary ArrayRef case below.
+      if (
+        builtin !== undefined &&
+        (!GWBASIC_ONLY_BUILTINS.has(calleeKey) || cursor.dialect === "gwbasic")
+      ) {
         const args = parseIndexList(cursor);
         if (args.length < builtin.min || args.length > builtin.max) {
           throw new ParseError(

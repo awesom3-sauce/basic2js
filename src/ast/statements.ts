@@ -31,6 +31,8 @@ export type Statement =
   | RestoreStmt
   | DefFnStmt
   | RandomizeStmt
+  | OpenStmt
+  | CloseStmt
   | RemStmt
   | EndStmt
   | StopStmt;
@@ -58,6 +60,8 @@ export interface ArrayElementLValue {
 export interface PrintStmt {
   readonly kind: "PrintStmt";
   readonly segments: readonly PrintSegment[];
+  /** `PRINT #n, ...` (GW-BASIC dialect extension — see src/dialect.ts). `undefined` means the console, same as always. */
+  readonly fileNumber?: Expression;
 }
 
 export type PrintSegment =
@@ -81,6 +85,8 @@ export interface InputStmt {
   readonly prompt?: string;
   readonly appendQuestionMark: boolean;
   readonly targets: readonly LValue[];
+  /** `INPUT #n, ...` (GW-BASIC dialect extension — see src/dialect.ts). `undefined` means interactive console input, same as always. Mutually exclusive with `prompt`/`appendQuestionMark` — the file form never has a prompt. */
+  readonly fileNumber?: Expression;
 }
 
 // --- LET ---
@@ -223,6 +229,32 @@ export interface DefFnParam {
 export interface RandomizeStmt {
   readonly kind: "RandomizeStmt";
   readonly seed: Expression;
+}
+
+// --- GW-BASIC dialect extension: sequential file I/O — see src/dialect.ts ---
+
+/**
+ * `OPEN path FOR mode AS #fileNumber`. `mode` is one of `INPUT` (read),
+ * `OUTPUT` (write, truncating any existing file), or `APPEND` (write,
+ * preserving existing content) — real GW-BASIC's `RANDOM`/binary mode
+ * isn't supported (see DIALECT.md). The `#` before `fileNumber` is
+ * optional, matching real GW-BASIC (`AS #1` and `AS 1` are both legal).
+ */
+export interface OpenStmt {
+  readonly kind: "OpenStmt";
+  readonly path: Expression;
+  readonly mode: "input" | "output" | "append";
+  readonly fileNumber: Expression;
+}
+
+/**
+ * `CLOSE [#n [, #n...]]`. An empty `fileNumbers` list (a bare `CLOSE`)
+ * closes every currently-open file, matching real GW-BASIC. Each `#` is
+ * optional, same as `OPEN`'s `AS #n`.
+ */
+export interface CloseStmt {
+  readonly kind: "CloseStmt";
+  readonly fileNumbers: readonly Expression[];
 }
 
 // --- Misc ---

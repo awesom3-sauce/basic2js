@@ -37,6 +37,15 @@ const KEYWORDS: ReadonlySet<string> = new Set([
   "OR",
   "NOT",
   "MOD",
+  // GW-BASIC dialect extension (file I/O) — see src/dialect.ts. Always
+  // lexed as keywords regardless of which dialect is active, same as every
+  // other keyword; the parser is what gates them to the "gwbasic" dialect,
+  // not the lexer (see parse-statements.ts's requireGwBasic).
+  "OPEN",
+  "CLOSE",
+  "AS",
+  "OUTPUT",
+  "APPEND",
 ]);
 
 /**

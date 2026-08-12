@@ -3,6 +3,12 @@
 // (coerced) part to its target variable or array element (build order
 // step 10).
 //
+// `INPUT #n, ...` (GW-BASIC dialect extension — see src/dialect.ts) shares
+// every bit of this logic except where the raw line comes from:
+// `rt.readFileLine(n)` instead of `rt.input(promptText)`. No prompt is
+// ever printed for the file form (parseInputStmt never lets `prompt` and
+// `fileNumber` coexist — see InputStmt's doc comment).
+//
 // Known simplification (still not addressed by step 15's type-suffix
 // work, and intentionally out of v1 scope — see DIALECT.md's Open
 // Decisions): numeric coercion here is a bare `Number(...)` via the
@@ -18,7 +24,10 @@ import { emitExpression } from "./emit-expressions.js";
 import { varKey } from "./mangle.js";
 
 export function emitInputCall(step: InputStep, stepIndex: number): string {
-  const promptText = JSON.stringify(computePromptText(step.prompt, step.appendQuestionMark));
+  const rawSource =
+    step.fileNumber === undefined
+      ? `await rt.input(${JSON.stringify(computePromptText(step.prompt, step.appendQuestionMark))})`
+      : `await rt.readFileLine(${emitExpression(step.fileNumber)})`;
 
   const assignments = step.targets
     .map((target, index) => {
@@ -34,7 +43,7 @@ export function emitInputCall(step: InputStep, stepIndex: number): string {
     .join(" ");
 
   return (
-    `const __raw = await rt.input(${promptText}); ` +
+    `const __raw = ${rawSource}; ` +
     `const __parts = __raw.split(","); ` +
     `${assignments} ` +
     `pc = ${stepIndex + 1}; break;`

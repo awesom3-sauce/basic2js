@@ -13,11 +13,11 @@
 // (build order step 6), For/Next (build order step 7),
 // Gosub/Return/OnJump (build order step 8), Input (build order step 9),
 // Dim (build order step 10), Read/Restore (build order step 11),
-// While/Wend (build order step 12), and Randomize (build order step 14) —
-// exactly the Step kinds lowering currently produces (see
-// src/ir/program.ts). Input is the only Step kind whose case body contains
-// an `await` beyond the print calls emitted here (`rt.print` is always
-// awaited too, for host symmetry — see src/runtime/interface.ts);
+// While/Wend (build order step 12), Randomize (build order step 14), and
+// Open/Close (GW-BASIC dialect extension — see src/dialect.ts) — exactly
+// the Step kinds lowering currently produces (see src/ir/program.ts).
+// Input/Open/Close all `await` a real host (`rt`) call (`rt.print` is
+// always awaited too, for host symmetry — see src/runtime/interface.ts);
 // Randomize calls `rt.seedRandom` synchronously.
 
 import type { Step } from "../ir/program.js";
@@ -42,7 +42,7 @@ export function emitStep(step: Step, stepIndex: number): string {
 function emitStepBody(step: Step, stepIndex: number): string {
   switch (step.kind) {
     case "Print":
-      return `${emitPrintCall(step.segments)} pc = ${stepIndex + 1}; break;`;
+      return `${emitPrintCall(step.segments, step.fileNumber)} pc = ${stepIndex + 1}; break;`;
 
     case "Let": {
       const key = JSON.stringify(varKey(step.target.name, step.target.suffix));
@@ -151,6 +151,25 @@ function emitStepBody(step: Step, stepIndex: number): string {
     case "Randomize":
       // rt.seedRandom is synchronous (see runtime/interface.ts) — no await needed.
       return `rt.seedRandom(${emitExpression(step.seed)}); pc = ${stepIndex + 1}; break;`;
+
+    case "Open": {
+      // GW-BASIC dialect extension (see src/dialect.ts) — real file I/O
+      // always goes through the host (rt), same reasoning as INPUT/RND:
+      // emitted code itself has no filesystem access of its own.
+      const path = emitExpression(step.path);
+      const fileNumber = emitExpression(step.fileNumber);
+      return `await rt.openFile(${fileNumber}, ${path}, ${JSON.stringify(step.mode)}); pc = ${stepIndex + 1}; break;`;
+    }
+
+    case "Close": {
+      if (step.fileNumbers.length === 0) {
+        return `await rt.closeAllFiles(); pc = ${stepIndex + 1}; break;`;
+      }
+      const closes = step.fileNumbers
+        .map((fileNumber) => `await rt.closeFile(${emitExpression(fileNumber)});`)
+        .join(" ");
+      return `${closes} pc = ${stepIndex + 1}; break;`;
+    }
 
     case "NoOp":
       return `pc = ${stepIndex + 1}; break;`;

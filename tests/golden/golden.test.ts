@@ -4,6 +4,12 @@
 // silently skipped rather than failing), compiles + runs it against a
 // scripted TestRuntime, and asserts the captured output matches
 // expected.txt exactly.
+//
+// An optional `dialect.txt` (just "gwbasic", no other value needed yet —
+// "classic" is already the default) selects which BASIC dialect the
+// program compiles against, for fixtures exercising the GW-BASIC dialect
+// extension (see src/dialect.ts) — e.g. gwbasic-file-io/, which also
+// exercises TestRuntime's `files` (the virtual "disk") after the run.
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -12,6 +18,7 @@ import { describe, expect, it } from "vitest";
 import { compile } from "../../src/index.js";
 import { importModuleFromSource } from "../../src/util/load-js-module.js";
 import type { BasicRuntime } from "../../src/runtime/interface.js";
+import { DEFAULT_DIALECT, type Dialect } from "../../src/dialect.js";
 import { TestRuntime } from "../helpers/test-runtime.js";
 
 const PROGRAMS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "programs");
@@ -35,7 +42,12 @@ describe.each(programNames)("golden: %s", (name) => {
           .filter((line) => line.length > 0)
       : [];
 
-    const { js } = compile(source);
+    const dialectPath = path.join(dir, "dialect.txt");
+    const dialect: Dialect = existsSync(dialectPath)
+      ? (readFileSync(dialectPath, "utf-8").trim() as Dialect)
+      : DEFAULT_DIALECT;
+
+    const { js } = compile(source, dialect);
     const mod = await importModuleFromSource(js);
     const run = mod.run as (rt: BasicRuntime) => Promise<void>;
     const rt = new TestRuntime(scriptedInput);

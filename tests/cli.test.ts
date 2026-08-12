@@ -108,6 +108,64 @@ describe("CLI: --emit-ast / --emit-steps", () => {
   });
 });
 
+describe("CLI: --dialect", () => {
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), "basic2js-cli-test-"));
+  });
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("rejects a GW-BASIC-only OPEN statement without --dialect gwbasic", async () => {
+    const file = path.join(dir, "prog.bas");
+    await writeFile(file, '10 OPEN "A.TXT" FOR OUTPUT AS #1\n20 CLOSE #1\n');
+    const result = await runCli(["run", file]);
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toMatch(/OPEN is a GW-BASIC dialect extension/);
+  });
+
+  it("--dialect gwbasic compiles and runs real sequential file I/O against the real filesystem", async () => {
+    const source = path.join(dir, "prog.bas");
+    const target = path.join(dir, "greet.txt");
+    await writeFile(
+      source,
+      `10 OPEN "${target}" FOR OUTPUT AS #1\n` +
+        '20 PRINT #1, "HELLO"\n' +
+        "30 CLOSE #1\n" +
+        `40 OPEN "${target}" FOR INPUT AS #2\n` +
+        "50 INPUT #2, A$\n" +
+        "60 PRINT A$\n" +
+        "70 CLOSE #2\n",
+    );
+    const result = await runCli(["run", source, "--dialect", "gwbasic"]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("HELLO");
+    const written = await readFile(target, "utf-8");
+    expect(written).toBe("HELLO\n");
+  });
+
+  it("rejects an unrecognized --dialect value with a clear error, exit code 1", async () => {
+    const file = path.join(dir, "prog.bas");
+    await writeFile(file, '10 PRINT "OK"\n20 END\n');
+    const result = await runCli(["run", file, "--dialect", "applesoft"]);
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toMatch(/Unknown --dialect "applesoft"/);
+  });
+
+  it("`convert --dialect gwbasic` emits JS that calls the file-I/O runtime methods", async () => {
+    const source = path.join(dir, "prog.bas");
+    await writeFile(source, '10 OPEN "A.TXT" FOR OUTPUT AS #1\n20 PRINT #1, "HI"\n30 CLOSE #1\n');
+    const result = await runCli(["convert", source, "--dialect", "gwbasic"]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("rt.openFile(");
+    expect(result.stdout).toContain("rt.writeFile(");
+    expect(result.stdout).toContain("rt.closeFile(");
+  });
+});
+
 describe("CLI: convert --standalone", () => {
   let dir: string;
 

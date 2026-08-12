@@ -8,7 +8,10 @@ Guidance for Claude Code (and any other agent or contributor) working in this re
 [DIALECT.md](DIALECT.md) for the exact supported syntax) into JavaScript that behaves **1:1**
 with the original program, including full support for unstructured `GOTO`/`GOSUB` control flow.
 It ships as a Node.js CLI (`basic2js convert`, `basic2js run`) and a small web UI
-([web/](web/), deployed to Vercel).
+([web/](web/), deployed to Vercel). Two BASIC dialects are supported (`src/dialect.ts`): the
+default `"classic"` spec, and `"gwbasic"`, which adds GW-BASIC's sequential file I/O
+(`OPEN`/`CLOSE`/`PRINT #`/`INPUT #`/`EOF()`) — see DIALECT.md's "GW-BASIC dialect extension"
+section and this file's "Progress" notes for how dialect selection threads through the pipeline.
 
 It is currently a **single, focused language pair** (BASIC → JS), not a generic multi-language
 framework — see "Future: multiple language pairs" below for the deliberate seam that keeps a
@@ -161,6 +164,13 @@ node dist/cli/index.js convert program.bas --standalone -o out.js && node out.js
 8. Extend an existing golden program or add a new one under `tests/golden/programs/`.
 9. Document the statement's exact syntax/semantics in [DIALECT.md](DIALECT.md).
 
+If the statement is dialect-specific (only legal under `"gwbasic"`, say — see `src/dialect.ts`),
+gate it in the parser, not the lexer: keep the keyword unconditionally recognized by the lexer, and
+call `requireGwBasic(cursor, token, "FEATURE NAME")` (`src/parser/parse-statements.ts`) at the
+parse function's entry point instead. This gives a classic-dialect program using it one clear
+"X is a GW-BASIC dialect extension" error rather than a confusing generic syntax error — see
+DIALECT.md's "GW-BASIC dialect extension" section for the precedent.
+
 ## How to add a new builtin function
 
 Narrower version of the above:
@@ -218,7 +228,8 @@ early turned out to stay intentionally empty once their real step arrived (`src/
 has its own header comment explaining why the anticipated need never materialized, rather than a
 stale `TODO`.
 
-**Progress**: steps 1–19 are implemented.
+**Progress**: steps 1–20 are implemented (see "GW-BASIC dialect extension" at the end of this
+section for the follow-on feature work that began once the 20-step build order itself completed).
 
 - Step 1 (minimal lexer) — `src/lexer/{token,keywords,lex-error,lexer}.ts` + colocated `lexer.test.ts`.
   It's dialect-complete on the keyword/operator table (a lookup table costs nothing to fill in
@@ -711,3 +722,94 @@ All 20 build-order steps are now complete. `basic2js` compiles classic line-numb
 JavaScript end-to-end — lexer through a browser-and-Node-both runtime — with a CLI, a web UI, and
 a test suite (colocated unit + cross-cutting golden + CLI integration tests) covering every
 statement, builtin, and documented edge case along the way.
+
+- **GW-BASIC dialect extension (post-step-20 follow-on work)** — the first real multi-dialect
+  feature: `compile(source, dialect)` now takes a `Dialect` (`src/dialect.ts`: `"classic"` |
+  `"gwbasic"`), and `"gwbasic"` adds GW-BASIC's sequential file I/O (`OPEN`/`CLOSE`/`PRINT #`/
+  `INPUT #`/`EOF()`) on top of everything `"classic"` already supports — see DIALECT.md's own
+  "GW-BASIC dialect extension" section for the full syntax/semantics spec; this entry is the
+  implementation-history/design-decisions record, matching every step above's convention.
+
+  Key finding: **`dialect` only ever needs to reach the parser.** Every dialect-gated AST node
+  (`OpenStmt`, `CloseStmt`, `PrintStmt`/`InputStmt`'s optional `fileNumber`, the `eof` builtin) can
+  only exist at all if the parser already confirmed the right dialect was active when it was
+  parsed — so semantic analysis, lowering, and emission stay entirely dialect-agnostic by
+  construction, the same "resolve ambiguity at the earliest possible stage" pattern step 14's
+  builtin-vs-ArrayRef disambiguation already established. Threading was correspondingly minimal:
+  `TokenCursor` gained a `dialect` field, `parse()`/`compile()`/the CLI's `--dialect` flag/the web
+  UI's dialect dropdown all just pass it down to that one place.
+
+  Dialect gating happens in the **parser**, not the lexer: the lexer stays fully dialect-agnostic
+  (`OPEN`/`CLOSE`/`AS`/`OUTPUT`/`APPEND` are always recognized keywords, `#` is always a tokenized
+  operator — see lexer.ts/keywords.ts), and a new `requireGwBasic(cursor, token, feature)` parser
+  helper throws a clear `"<feature> is a GW-BASIC dialect extension"` `ParseError` at each of the
+  four gated call sites (`OPEN`, `CLOSE`, `PRINT #`, `INPUT #`) plus the `eof` builtin's
+  registration (`src/parser/builtins.ts`'s `GWBASIC_ONLY_BUILTINS`). Chosen over lexer-level gating
+  specifically so a classic-dialect program that happens to use these keywords gets one clear,
+  actionable message instead of a confusing generic "unexpected token" error.
+
+  Runtime host contract: `BasicRuntime` (`src/runtime/interface.ts`) gained 6 new **required**
+  methods (not optional — every implementation must have them, even ones that never exercise
+  file I/O, keeping the interface's own doc comment as the single source of truth for the contract
+  rather than scattering "may be undefined" checks through emitted code) — 5 `async`
+  (`openFile`/`closeFile`/`closeAllFiles`/`writeFile`/`readFileLine`) plus one deliberately
+  **synchronous** `isFileEof`, since a host can always answer "was the last read the end" from
+  state it already cached, letting `EOF()` be called directly from expression position with no
+  `await` anywhere the compiler doesn't already support async evaluation. `NodeRuntime` backs this
+  with real `node:fs` (using `createReadStream` + an eager readline async-iterator pre-fetch after
+  every `OPEN...FOR INPUT`/`readFileLine`, so the _next_ line is always already known without
+  further I/O by the time `isFileEof` is asked); `BrowserRuntime` and `TestRuntime` instead share a
+  new `VirtualFileSystem` (`src/runtime/shared/virtual-fs.ts`) — composed in, not inherited, over
+  an injectable `Map<string, string>` "disk" — since a browser tab has no real filesystem and a
+  test shouldn't touch one. This mirrors the exact "genuinely shared vs. just similar" distinction
+  step 14's `SeedableRandom` already established (`strings.ts`/`math.ts` stayed stubs because their
+  logic was never genuinely shared; `VirtualFileSystem` _is_, so it gets a real shared class).
+
+  **Real bug found via direct testing, not caught by reasoning in advance**: the first version of
+  `runtime-calls.ts`'s `eof` entry emitted `rt.isFileEof(n)` directly — a raw JS boolean in
+  expression position. Since `NOT`/`AND`/`OR` compile to JS's bitwise `~`/`&`/`|`, which only
+  round-trip correctly against BASIC's own `-1`/`0` truthiness convention, `~true` evaluates to
+  `-2` (still JS-truthy) rather than `-1` — so `WHILE NOT EOF(n)` never correctly terminated; it
+  always attempted one `INPUT #` too many past the last line before throwing. Fixed by wrapping as
+  `(rt.isFileEof(n) ? -1 : 0)`, matching the convention every comparison operator already uses.
+  Caught by a throwaway smoke script exercising a real `WHILE NOT EOF...WEND` loop against a
+  3-line virtual file — the same "verify by direct experimentation before/alongside formal tests"
+  workflow used to find every other real bug across this project's build order.
+
+  A second, smaller bug was caught the same way, this time in `VirtualFileSystem` itself: its
+  methods are typed `Promise<...>` (matching `BasicRuntime`'s async contract) but the first version
+  wasn't declared `async`, so a validation failure (`file #n is not open`, etc.) threw
+  _synchronously_ rather than rejecting — harmless for emitted code's `await rt.foo(...)` (a
+  synchronous throw during argument evaluation is still caught by the dispatch loop's surrounding
+  try/catch exactly like a rejection would be), but a real footgun for any other caller expecting a
+  genuine rejected Promise (`.catch(...)`, `Promise.all([...])`) — caught by `virtual-fs.test.ts`'s
+  own unit tests failing in exactly that way. Fixed by declaring every failable method `async`.
+
+  Web UI: a `DialectSelector` dropdown (`web/src/components/DialectSelector/`) sits in the toolbar
+  next to `ExamplesMenu`; `App.tsx` owns `dialect` state and threads it through
+  `compileProgram(source, dialect)`. `useBrowserRuntime.ts` now holds a persistent
+  `Map<string, string>` (in a `useRef`, mutated in place by `BrowserRuntime`/`VirtualFileSystem`,
+  then snapshotted into real React state right after each run completes so the UI re-renders) —
+  giving the virtual "disk" real persistence across multiple runs within one session, matching how
+  a real disk would behave. A new `VirtualFiles` panel (`web/src/components/VirtualFiles/`) shows
+  the disk's contents (rendered only under the `gwbasic` dialect) with a "Clear" action. A new
+  bundled example (`gwbasic-file-io`, mirrored into both `tests/golden/programs/` and
+  `web/src/examples/`, matching every existing example) exercises `OPEN FOR OUTPUT` → `PRINT #` →
+  `CLOSE` → `OPEN FOR APPEND` → `PRINT #` → `CLOSE` → `OPEN FOR INPUT` → a `WHILE NOT EOF` read
+  loop → `CLOSE`; `web/src/examples/index.ts`'s `Example` type gained an optional `dialect` field
+  so selecting it from `ExamplesMenu` also flips the toolbar's dropdown automatically, not just the
+  loaded source text.
+
+  Testing: `tests/golden/golden.test.ts` gained an optional per-fixture `dialect.txt` (just the
+  literal `gwbasic`, since `"classic"` is already every other fixture's implicit default) rather
+  than a bespoke mechanism, keeping golden fixtures the primary regression-coverage format for this
+  feature the same way they are for every BASIC construct. Coverage spans every layer: parser
+  (AST shapes for `OPEN`/`CLOSE`/`PRINT #`/`INPUT #`/`EOF()`, plus dialect-gating error messages
+  under the default dialect), lowering (`OpenStep`/`CloseStep`, `fileNumber` threading into
+  `PrintStep`/`InputStep`), semantic analysis (`OpenStmt`'s path must be a string/file number must
+  be numeric, each `CloseStmt` file number must be numeric), emission (behavioral tests via
+  `TestRuntime`, including the `WHILE NOT EOF` regression test for the truthiness bug above),
+  runtime (`VirtualFileSystem` unit tests covering every OPEN mode/error path, `BrowserRuntime`
+  delegation + cross-instance `Map` persistence tests), and the CLI (`--dialect gwbasic` against a
+  real temp file on the real filesystem, `--dialect`'s gating error under the default dialect, and
+  its own unrecognized-value error).

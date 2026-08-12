@@ -10,6 +10,16 @@ Status: complete as of build order step 20 — every construct documented below 
 CLAUDE.md's "Progress" notes for exactly which build-order step landed each one) — this file
 describes the compiler as it actually behaves today, not a target spec for future work.
 
+`compile(source, dialect)` (see `src/dialect.ts`) supports two dialects as of the GW-BASIC dialect
+extension work: `"classic"` (the default — everything below except the "GW-BASIC dialect
+extension" section) and `"gwbasic"` (`"classic"` **plus** that section's sequential file I/O). Both
+the CLI (`--dialect gwbasic`) and the web UI (the toolbar's dialect dropdown) expose the choice —
+see that section for exactly what changes. This is explicitly a first pass: only GW-BASIC's file
+I/O was added on top of "classic" so far; further real dialects (Applesoft, Commodore BASIC, ...)
+are a deliberately deferred follow-up, not a rejected idea — see CLAUDE.md's "Future: multiple
+language pairs" for the analogous reasoning applied to whole additional _languages_ (not just
+dialects of this one).
+
 ## General syntax rules
 
 - **Line numbers** are required at the start of every line and determine execution order when
@@ -218,6 +228,70 @@ Two kinds of failure, surfaced two different ways:
   message already starts with one, e.g. `"OVERFLOW: ..."`) — right before the dispatch loop's
   top-level catch hands it to `rt.reportError`.
 
+## GW-BASIC dialect extension (file I/O)
+
+Available only under `dialect: "gwbasic"` (see the intro above). Everything in this section is
+gated at **parse time**: using one of these keywords/forms under the default `"classic"` dialect
+raises a clear `ParseError` — `"<feature> is a GW-BASIC dialect extension — select the GW-BASIC
+dialect to use it"` — rather than a confusing generic syntax error or, worse, a silent
+misinterpretation. The lexer itself is dialect-agnostic (these keywords/the `#` operator are always
+tokenized regardless of dialect); only the parser checks `dialect`, and nothing downstream
+(semantic analysis, lowering, emission) needs to re-check it — see `src/dialect.ts`'s own doc
+comment for why that's sufficient.
+
+- **`OPEN path FOR mode AS #fileNumber`** — opens a sequential text file. `mode` is `INPUT`,
+  `OUTPUT`, or `APPEND` (no `RANDOM`/`BINARY` file modes — out of scope, see Open Decisions below).
+  `path` is any string expression; `fileNumber` is any numeric expression, with the `#` optional
+  (`AS #1` and `AS 1` are both legal, matching real GW-BASIC). `OUTPUT` truncates the file
+  immediately, even before any `PRINT #` write; `APPEND` preserves existing content and starts
+  writing after it, creating the file if it doesn't exist yet. Re-`OPEN`ing an already-open file
+  number, or `OPEN`ing a missing file `FOR INPUT`, raises a `FILE_ERROR` immediately (not deferred
+  to the first read/write).
+- **`CLOSE [#fileNumber[, #fileNumber...]]`** — closes the given file number(s); a bare `CLOSE`
+  with no list closes every currently open file. Closing a file number that isn't open is a silent
+  no-op (matches real GW-BASIC), not an error.
+- **`PRINT #fileNumber, ...`** — identical segment syntax/formatting to console `PRINT` (`;`/`,`
+  separators, `TAB()`/`SPC()`, the same number-formatting convention), just written to the file
+  instead of `rt.print`. Writing to a file not open, or open for `INPUT`, raises `FILE_ERROR`.
+- **`INPUT #fileNumber, var[, var...]`** — reads one line per target from the file (no comma-split
+  across one line the way console `INPUT`'s single response is — each `INPUT #` target consumes its
+  own line), coerced to the target's type suffix exactly like console `INPUT`. No prompt is ever
+  printed. Reading from a file not open, open for `OUTPUT`/`APPEND`, or already at end-of-file
+  raises `FILE_ERROR`. (Real GW-BASIC's `LINE INPUT #` — reads a whole line into one string target,
+  no comma-splitting — is a distinct statement and isn't supported; out of scope for this pass.)
+- **`EOF(fileNumber)`** — a builtin function, reserved **only under the `gwbasic` dialect** (see
+  the general builtin-reservation rule in Open Decisions below, which otherwise applies dialect
+  -wide) — returns BASIC's numeric-truthy `-1` once the file open for `INPUT` has no more lines to
+  read, `0` otherwise. **Must** be wrapped as BASIC truthiness, not returned as a raw JS boolean,
+  when read from the runtime — see the implementation note below. The standard idiom is
+  `WHILE NOT EOF(n) ... INPUT #n, ... WEND`.
+- **Runtime host contract**: `src/runtime/interface.ts`'s `BasicRuntime` requires 6 additional
+  methods for every implementation (not just the ones that need file I/O — see that file's own doc
+  comment for why they're required, not optional): `openFile`/`closeFile`/`closeAllFiles`/
+  `writeFile`/`readFileLine` (all `async`) and `isFileEof` (deliberately **synchronous** — a host
+  can always answer "was the last read the end" from state it already cached during the last
+  read/open, so `EOF()` never needs the compiler to support async expression evaluation anywhere
+  outside `INPUT` itself). `NodeRuntime` backs this with real `node:fs`; `BrowserRuntime` and
+  `TestRuntime` share an in-memory `VirtualFileSystem` (`src/runtime/shared/virtual-fs.ts`) over an
+  injectable `Map<string, string>` "disk" — a browser tab has no real filesystem, and a test
+  shouldn't touch one. The web UI (`useBrowserRuntime.ts`) holds onto the same `Map` across
+  multiple runs within one session, so the virtual "disk" persists like a real one would; its
+  toolbar's "Virtual files" panel reads that `Map` directly to show what a program wrote.
+- **Error taxonomy**: adds `FILE_ERROR` to the `BasicRuntimeError` codes listed in "Runtime error
+  taxonomy" above, classified the same way every other code is — by its message's
+  `"FILE ERROR: ..."` prefix, matched in `prelude.ts`'s `__toBasicError`. Every file-I/O failure
+  (missing file, wrong mode, unopened/already-open file number, read past EOF) is a `FILE_ERROR`,
+  never a bespoke code.
+- **Implementation note — `EOF()`'s truthiness**: a real bug was found (and fixed) via direct
+  testing during this feature's implementation, not caught by reasoning about it in advance: `NOT`/
+  `AND`/`OR` compile to JS's bitwise `~`/`&`/`|`, which only round-trip correctly against BASIC's
+  own `-1`/`0` truthiness convention — `~true` is `-2` in JS, not `-1`, so an unwrapped
+  `rt.isFileEof(...)` (a genuine JS boolean) fed straight into `NOT EOF(n)` stayed truthy even once
+  EOF _was_ reached, causing `WHILE NOT EOF(n)` to always attempt one extra `INPUT #` past the last
+  line before ever exiting. Fixed in `src/emitter/runtime-calls.ts`'s `eof` entry by wrapping as
+  `(rt.isFileEof(n) ? -1 : 0)`, matching every comparison operator's own convention. Any future
+  runtime call feeding a JS boolean into expression position needs the same wrapping.
+
 ## Open Decisions / Locked Defaults
 
 These behaviors vary across real historical BASIC interpreters and weren't pinned down by a single
@@ -247,6 +321,15 @@ revisited explicitly** — if you change one, update this section and any golden
   (e.g. `DIM LEN(10)`) is similarly not rejected at parse time; expression-position access with
   that name resolves to the builtin, not the array — avoid naming arrays after builtin functions.
   Revisit both if real-world ambiguity turns out to matter.
+- **`EOF` is reserved in call position only under the `gwbasic` dialect** — the exact same
+  call-position-only rule as every other builtin (above), plus one extra axis: under `"classic"`,
+  `EOF(1)` parses as an ordinary `ArrayRef` (ArrayRef-vs-CallExpr disambiguation happens
+  per-dialect, via `src/parser/builtins.ts`'s `GWBASIC_ONLY_BUILTINS`), so a classic-dialect program
+  that happens to use `EOF` as an array name keeps working unchanged.
+- **No `RANDOM`/`BINARY` file modes, no `LINE INPUT #`**: the GW-BASIC dialect extension covers only
+  sequential `INPUT`/`OUTPUT`/`APPEND` text-file access (see that section above) — real GW-BASIC's
+  random-access records and `LINE INPUT #` (whole-line-no-comma-split reads) are out of scope for
+  this first pass. Revisit if a real-world `.bas` listing needs them.
 - **`TAB`/`SPC` are recognized only inside PRINT's segment list**, not as general expressions —
   matches real classic BASIC's own restriction. A bare `TAB`/`SPC` with no following `(`, or either
   name used anywhere outside PRINT, is treated as an ordinary variable (unlike the general builtin

@@ -33,6 +33,8 @@ export type BasicErrorCode =
   | "RETURN_WITHOUT_GOSUB"
   | "NEXT_WITHOUT_FOR"
   | "ILLEGAL_FUNCTION_CALL"
+  /** `OPEN`/`CLOSE`/`PRINT #`/`INPUT #`/`EOF()` failures (GW-BASIC dialect extension — see src/dialect.ts): file not found, wrong mode, reading past end of file, an unopened file number, ... */
+  | "FILE_ERROR"
   /** Fallback bucket for a runtime failure that doesn't fit any code above (e.g. RESTORE to a line with no DATA of its own). */
   | "RUNTIME_ERROR";
 

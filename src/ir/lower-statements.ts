@@ -17,9 +17,13 @@
 // placeholder target, resolved afterward by lowering.ts's
 // resolveWhileWend static bracket-matching pass (build order step 12);
 // RandomizeStmt lowers 1:1 into a RandomizeStep (build order step 14).
-// This switch is otherwise exhaustive (backed by the final `assertNever`)
-// — adding a new Statement kind without updating this file becomes a
-// compile-time TS error.
+// OpenStmt/CloseStmt (GW-BASIC dialect extension, see src/dialect.ts) each
+// lower 1:1 into a single Step, same pattern as everything else; PrintStmt/
+// InputStmt's optional `fileNumber` (also part of that extension) just
+// passes straight through onto PrintStep/InputStep unchanged. This switch
+// is otherwise exhaustive (backed by the final `assertNever`) — adding a
+// new Statement kind without updating this file becomes a compile-time TS
+// error.
 
 import type { IfStmt, NextStmt, OnJumpStmt, Statement } from "../ast/statements.js";
 import { UNRESOLVED_WHILE_WEND, type JumpTarget, type Step } from "./program.js";
@@ -41,7 +45,9 @@ export interface LoweringContext {
 export function lowerStatement(statement: Statement, line: number, ctx: LoweringContext): Step[] {
   switch (statement.kind) {
     case "PrintStmt":
-      return [{ kind: "Print", line, segments: statement.segments }];
+      return [
+        { kind: "Print", line, segments: statement.segments, fileNumber: statement.fileNumber },
+      ];
 
     case "LetStmt":
       return [{ kind: "Let", line, target: statement.target, value: statement.value }];
@@ -92,6 +98,7 @@ export function lowerStatement(statement: Statement, line: number, ctx: Lowering
           prompt: statement.prompt,
           appendQuestionMark: statement.appendQuestionMark,
           targets: statement.targets,
+          fileNumber: statement.fileNumber,
         },
       ];
 
@@ -120,6 +127,20 @@ export function lowerStatement(statement: Statement, line: number, ctx: Lowering
 
     case "RandomizeStmt":
       return [{ kind: "Randomize", line, seed: statement.seed }];
+
+    case "OpenStmt":
+      return [
+        {
+          kind: "Open",
+          line,
+          path: statement.path,
+          mode: statement.mode,
+          fileNumber: statement.fileNumber,
+        },
+      ];
+
+    case "CloseStmt":
+      return [{ kind: "Close", line, fileNumbers: statement.fileNumbers }];
 
     default:
       return assertNever(statement, "lowerStatement");

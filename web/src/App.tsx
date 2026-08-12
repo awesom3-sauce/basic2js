@@ -13,9 +13,11 @@ import GeneratedJsView from "./components/GeneratedJsView/GeneratedJsView";
 import OutputConsole from "./components/OutputConsole/OutputConsole";
 import InputPrompt from "./components/InputPrompt/InputPrompt";
 import ErrorPanel from "./components/ErrorPanel/ErrorPanel";
+import VirtualFiles from "./components/VirtualFiles/VirtualFiles";
 import { compileProgram } from "./engine/compileProgram";
 import { useBrowserRuntime } from "./engine/useBrowserRuntime";
-import { EXAMPLES } from "./examples";
+import { EXAMPLES, type Example } from "./examples";
+import { DEFAULT_DIALECT, type Dialect } from "@core/dialect.js";
 import styles from "./App.module.css";
 
 const INITIAL_SOURCE = EXAMPLES[0]?.source ?? '10 PRINT "HELLO, WORLD"\n20 END\n';
@@ -24,10 +26,11 @@ export default function App() {
   const [source, setSource] = useState(INITIAL_SOURCE);
   const [js, setJs] = useState("");
   const [compileError, setCompileError] = useState<string | null>(null);
+  const [dialect, setDialect] = useState<Dialect>(DEFAULT_DIALECT);
   const runtime = useBrowserRuntime();
 
   function handleConvert() {
-    const result = compileProgram(source);
+    const result = compileProgram(source, dialect);
     if (result.ok) {
       setJs(result.js);
       setCompileError(null);
@@ -38,7 +41,7 @@ export default function App() {
   }
 
   async function handleRun() {
-    const result = compileProgram(source);
+    const result = compileProgram(source, dialect);
     if (!result.ok) {
       setJs("");
       setCompileError(result.message);
@@ -53,8 +56,9 @@ export default function App() {
     runtime.reset();
   }
 
-  function handleSelectExample(exampleSource: string) {
-    setSource(exampleSource);
+  function handleSelectExample(example: Example) {
+    setSource(example.source);
+    setDialect(example.dialect ?? DEFAULT_DIALECT);
     setJs("");
     setCompileError(null);
     runtime.reset();
@@ -77,6 +81,8 @@ export default function App() {
         onRun={() => void handleRun()}
         onReset={handleReset}
         onSelectExample={handleSelectExample}
+        dialect={dialect}
+        onDialectChange={setDialect}
         running={runtime.running}
       />
       <main className={styles.main}>
@@ -92,6 +98,9 @@ export default function App() {
           )}
           {displayedError !== null && (
             <ErrorPanel message={displayedError.message} line={displayedError.line} />
+          )}
+          {dialect === "gwbasic" && (
+            <VirtualFiles files={runtime.files} onClear={runtime.clearFiles} />
           )}
         </section>
         <section className={styles.pane}>

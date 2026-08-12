@@ -1,14 +1,20 @@
-// Convert / Run / Reset buttons + example-loading trigger. Presentation
-// only — calls back into props supplied by App.tsx (via engine/).
+// Convert / Run / Reset buttons + example-loading trigger + dialect
+// selector. Presentation only — calls back into props supplied by App.tsx
+// (via engine/).
 
+import type { Dialect } from "@core/dialect.js";
+import type { Example } from "../../examples";
 import ExamplesMenu from "../ExamplesMenu/ExamplesMenu";
+import DialectSelector from "../DialectSelector/DialectSelector";
 import styles from "./Toolbar.module.css";
 
 export interface ToolbarProps {
   readonly onConvert: () => void;
   readonly onRun: () => void;
   readonly onReset: () => void;
-  readonly onSelectExample: (source: string) => void;
+  readonly onSelectExample: (example: Example) => void;
+  readonly dialect: Dialect;
+  readonly onDialectChange: (dialect: Dialect) => void;
   readonly running: boolean;
 }
 
@@ -17,12 +23,15 @@ export default function Toolbar({
   onRun,
   onReset,
   onSelectExample,
+  dialect,
+  onDialectChange,
   running,
 }: ToolbarProps) {
   return (
     <div className={styles.toolbar}>
       <span className={styles.title}>basic2js</span>
       <div className={styles.actions}>
+        <DialectSelector value={dialect} onChange={onDialectChange} disabled={running} />
         <button type="button" className={styles.button} onClick={onConvert} disabled={running}>
           Convert
         </button>

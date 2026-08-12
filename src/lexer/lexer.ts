@@ -37,7 +37,15 @@ function isSuffix(ch: string): boolean {
   return ch === "%" || ch === "!" || ch === "#" || ch === "$";
 }
 
-const SINGLE_CHAR_OPERATORS = "+-*/\\^=<>,;()";
+// "#" pulls double duty: inside the identifier-scanning branch below it's
+// consumed as a type suffix (e.g. "A#"), checked *before* this table is
+// ever consulted for that position — so a standalone "#" only ever reaches
+// here (and becomes an Operator token) when it's NOT immediately preceded
+// by an identifier, e.g. GW-BASIC dialect file I/O's `PRINT #1`/`CLOSE #1`
+// (see src/dialect.ts). The lexer stays dialect-agnostic either way: it
+// always tokenizes "#", the parser is what decides whether that's legal
+// for the active dialect.
+const SINGLE_CHAR_OPERATORS = "+-*/\\^=<>,;()#";
 
 /**
  * Tokenizes a full BASIC source listing. Every non-blank physical line must

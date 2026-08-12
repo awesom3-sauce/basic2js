@@ -3,9 +3,10 @@ import { tokenize } from "../lexer/lexer.js";
 import { parse } from "../parser/parser.js";
 import { analyze } from "./analyzer.js";
 import type { Diagnostic } from "./diagnostic.js";
+import type { Dialect } from "../dialect.js";
 
-function analyzeSource(source: string): Diagnostic[] {
-  return analyze(parse(tokenize(source)));
+function analyzeSource(source: string, dialect?: Dialect): Diagnostic[] {
+  return analyze(parse(tokenize(source), dialect));
 }
 
 describe("analyze — LET/assignment", () => {
@@ -162,5 +163,32 @@ describe("analyze — UNDEFINED_LINE (build order step 16)", () => {
         "10 GOTO 20\n20 GOSUB 30\n30 ON 1 GOTO 40, 50\n40 IF 1 THEN 50 ELSE 20\n50 RETURN",
       ),
     ).toEqual([]);
+  });
+});
+
+describe("analyze — GW-BASIC dialect extension: OPEN/CLOSE", () => {
+  it("flags a non-string OPEN path", () => {
+    const diagnostics = analyzeSource("10 OPEN 5 FOR OUTPUT AS #1", "gwbasic");
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]?.message).toMatch(/an OPEN path must be a string/);
+  });
+
+  it("flags a string OPEN file number", () => {
+    const diagnostics = analyzeSource('10 OPEN "A" FOR OUTPUT AS "X"', "gwbasic");
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0]?.message).toMatch(/an OPEN file number must be numeric/);
+  });
+
+  it("flags each string CLOSE file number in a multi-file list", () => {
+    expect(analyzeSource('10 CLOSE #1, "X"', "gwbasic")).toHaveLength(1);
+    expect(analyzeSource('10 CLOSE "X", "Y"', "gwbasic")).toHaveLength(2);
+  });
+
+  it("allows an ordinary well-typed OPEN/CLOSE pair", () => {
+    expect(analyzeSource('10 OPEN "A.TXT" FOR OUTPUT AS #1\n20 CLOSE #1', "gwbasic")).toEqual([]);
+  });
+
+  it("allows a bare CLOSE (no file numbers to check)", () => {
+    expect(analyzeSource("10 CLOSE", "gwbasic")).toEqual([]);
   });
 });

@@ -2,23 +2,24 @@ import { describe, expect, it } from "vitest";
 import { tokenize } from "../lexer/lexer.js";
 import { parse } from "./parser.js";
 import { ParseError } from "./errors.js";
+import type { Dialect } from "../dialect.js";
 import type { Program } from "../ast/program.js";
 import type { Expression } from "../ast/expressions.js";
 import type { IfStmt, LetStmt } from "../ast/statements.js";
 
-function parseSource(source: string): Program {
-  return parse(tokenize(source));
+function parseSource(source: string, dialect?: Dialect): Program {
+  return parse(tokenize(source), dialect);
 }
 
 /** Convenience for tests that only care about one line's statements. */
-function firstLineStatements(source: string) {
-  const program = parseSource(source);
+function firstLineStatements(source: string, dialect?: Dialect) {
+  const program = parseSource(source, dialect);
   expect(program.lines).toHaveLength(1);
   return program.lines[0]!.statements;
 }
 
-function firstStatement(source: string) {
-  const statements = firstLineStatements(source);
+function firstStatement(source: string, dialect?: Dialect) {
+  const statements = firstLineStatements(source, dialect);
   expect(statements).toHaveLength(1);
   return statements[0]!;
 }
@@ -899,4 +900,93 @@ describe("parse — PRINT TAB()/SPC()", () => {
   it("rejects TAB() with the wrong argument count", () => {
     expect(() => parseSource("10 PRINT TAB(1, 2)")).toThrow(/TAB expects 1 argument, got 2/);
   });
+});
+
+describe("parse — GW-BASIC dialect extension: OPEN/CLOSE/PRINT #/INPUT #/EOF()", () => {
+  it("parses OPEN ... FOR OUTPUT AS #n", () => {
+    const stmt = firstStatement('10 OPEN "OUT.TXT" FOR OUTPUT AS #1', "gwbasic");
+    expect(stmt).toEqual({
+      kind: "OpenStmt",
+      path: { kind: "StringLiteral", value: "OUT.TXT" },
+      mode: "output",
+      fileNumber: { kind: "NumberLiteral", value: 1 },
+    });
+  });
+
+  it("parses OPEN ... FOR INPUT/APPEND and an omitted '#' before the file number", () => {
+    const input = firstStatement('10 OPEN "A" FOR INPUT AS 1', "gwbasic");
+    expect(input).toMatchObject({ mode: "input", fileNumber: { kind: "NumberLiteral", value: 1 } });
+
+    const append = firstStatement('10 OPEN "A" FOR APPEND AS #2', "gwbasic");
+    expect(append).toMatchObject({ mode: "append" });
+  });
+
+  it("parses CLOSE with an explicit file-number list", () => {
+    const stmt = firstStatement("10 CLOSE #1, #2", "gwbasic");
+    expect(stmt).toEqual({
+      kind: "CloseStmt",
+      fileNumbers: [
+        { kind: "NumberLiteral", value: 1 },
+        { kind: "NumberLiteral", value: 2 },
+      ],
+    });
+  });
+
+  it("parses a bare CLOSE (closes every open file) as an empty file-number list", () => {
+    const stmt = firstStatement("10 CLOSE", "gwbasic");
+    expect(stmt).toEqual({ kind: "CloseStmt", fileNumbers: [] });
+  });
+
+  it("parses PRINT #n, ... with a fileNumber and no console segments confusion", () => {
+    const stmt = firstStatement('10 PRINT #1, "HI"', "gwbasic");
+    expect(stmt).toEqual({
+      kind: "PrintStmt",
+      fileNumber: { kind: "NumberLiteral", value: 1 },
+      segments: [{ kind: "value", expr: { kind: "StringLiteral", value: "HI" } }],
+    });
+  });
+
+  it("parses INPUT #n, var[, var...] with no prompt allowed", () => {
+    const stmt = firstStatement("10 INPUT #1, A$, B", "gwbasic");
+    expect(stmt).toEqual({
+      kind: "InputStmt",
+      appendQuestionMark: false,
+      fileNumber: { kind: "NumberLiteral", value: 1 },
+      targets: [
+        { kind: "Variable", name: "a", suffix: "$" },
+        { kind: "Variable", name: "b", suffix: "" },
+      ],
+    });
+  });
+
+  it("parses EOF(n) as a builtin call under the gwbasic dialect", () => {
+    const stmt = firstStatement("10 X = EOF(1)", "gwbasic") as LetStmt;
+    expect(stmt.value).toEqual({
+      kind: "CallExpr",
+      callee: "eof",
+      args: [{ kind: "NumberLiteral", value: 1 }],
+    });
+  });
+
+  it("plain (classic-dialect) EOF(1) parses as an ArrayRef, not a builtin call — reserved only in gwbasic", () => {
+    const stmt = firstStatement("10 X = EOF(1)") as LetStmt;
+    expect(stmt.value).toEqual({
+      kind: "ArrayRef",
+      name: "eof",
+      suffix: "",
+      indices: [{ kind: "NumberLiteral", value: 1 }],
+    });
+  });
+
+  for (const [source, feature] of [
+    ['10 OPEN "A" FOR OUTPUT AS #1', "OPEN"],
+    ["10 CLOSE #1", "CLOSE"],
+    ['10 PRINT #1, "HI"', "PRINT #"],
+    ["10 INPUT #1, A$", "INPUT #"],
+  ] as const) {
+    it(`rejects "${feature}" under the default (classic) dialect with a clear dialect-mismatch error`, () => {
+      expect(() => parseSource(source)).toThrow(`${feature} is a GW-BASIC dialect extension`);
+      expect(() => parseSource(source)).toThrow(ParseError);
+    });
+  }
 });
