@@ -95,9 +95,11 @@ normalization. Full semantics are in [DIALECT.md](DIALECT.md).
   `import { tokenize } from "./lexer.js"` even though the file is `lexer.ts`) — the root
   `tsconfig.json` uses `NodeNext` module resolution, which requires this. `web/**` uses Vite's
   `Bundler` resolution instead and does not need it.
-- **Colocated unit tests, cross-cutting golden tests.** `src/lexer/lexer.test.ts` sits next to
-  `lexer.ts`; full end-to-end sample programs live under `tests/golden/programs/`. See "Testing"
-  below.
+- **Colocated unit tests, cross-cutting golden tests, integration tests for cross-process
+  behavior.** `src/lexer/lexer.test.ts` sits next to `lexer.ts`; full end-to-end sample programs
+  live under `tests/golden/programs/` (auto-discovered by `tests/golden/golden.test.ts`); anything
+  that genuinely needs a separate process (`tests/cli.test.ts`'s exit-code and `--standalone`
+  checks) also lives under `tests/`. See CONTRIBUTING.md for how to add each kind.
 
 ## UI replaceability contract
 
@@ -161,9 +163,23 @@ node dist/cli/index.js convert program.bas --standalone -o out.js && node out.js
 
 ## How to add a new builtin function
 
-Narrower version of the above, scoped to `src/emitter/runtime-calls.ts` (name → runtime helper
-mapping) + the relevant file under `src/runtime/shared/` (`strings.ts`, `math.ts`, or
-`formatting.ts`) + its unit tests + a DIALECT.md entry in the function table.
+Narrower version of the above:
+
+1. Add the name + arity to `src/parser/builtins.ts`'s `BUILTIN_FUNCTIONS` registry.
+2. Add a matching entry to `src/emitter/runtime-calls.ts`'s `RUNTIME_CALLS` (name → JS-emission
+   function) — `runtime-calls.test.ts` asserts the two tables' key sets stay identical, so a
+   builtin added to one and forgotten in the other is caught immediately.
+3. If the logic needs more than a one-line `Math.*`/inline expression, add a `__`-prefixed helper
+   directly to `src/emitter/prelude.ts` (**not** `src/runtime/shared/strings.ts`/`math.ts` — see
+   their header comments for why pure/stateless builtins live in `prelude.ts` as embedded JS text
+   instead of a TS module: nothing outside emitted code ever calls them, so a second copy would
+   only be a duplication/drift risk). `src/runtime/shared/random.ts` is the one exception — `RND`/
+   `RANDOMIZE` genuinely need the `BasicRuntime` host for entropy, so that logic really does live
+   in a real, host-shared TS module.
+4. Add behavioral tests in `src/emitter/emit-program.test.ts` (compile a snippet, run it against
+   `TestRuntime`, assert on output/errors — covers edge cases too, e.g. `SQR` of a negative
+   number).
+5. Add a DIALECT.md entry in the relevant builtin-function table.
 
 ## Staged build order
 
@@ -195,8 +211,12 @@ the scaffolding plan (git history); summary:
 19. CLI polish (`--standalone`, `--emit-ast`, `--emit-steps`, help text, exit codes).
 20. Final docs pass.
 
-Every `src/**` file not yet reached by this build order is a stub with a `TODO` comment pointing at
-the relevant step above — that's the intended landing spot for each piece of real implementation.
+All 20 steps are now implemented — see "Progress" below for exactly what landed at each one,
+including real bugs found and design decisions made along the way. A handful of files scaffolded
+early turned out to stay intentionally empty once their real step arrived (`src/ir/lower-expressions.ts`,
+`src/semantics/symbol-table.ts`, `src/runtime/shared/{strings,math,values,formatting}.ts`) — each
+has its own header comment explaining why the anticipated need never materialized, rather than a
+stale `TODO`.
 
 **Progress**: steps 1–19 are implemented.
 
@@ -653,4 +673,41 @@ process.argv[1]`, the naive textbook ESM idiom) silently did nothing — no outp
   via `npx tsx src/cli/index.ts` rather than the built `dist/`, so the suite doesn't require
   `npm run build` to have run first.
 
-Next: step 20, the final docs pass.
+- Step 20 (final docs pass) — a full read-through of every doc file (`README.md`, `CLAUDE.md`,
+  `DIALECT.md`, `CONTRIBUTING.md`) against the actual, final state of the codebase. Found and fixed
+  several small pieces of drift that had accumulated across steps 1–19, none large enough to
+  warrant their own step but all worth closing out before calling the project done:
+  - `README.md`'s status banner still said "early scaffolding... nothing runs end-to-end yet" —
+    a leftover from the very first scaffolding commit, never updated as each step actually landed.
+    Replaced with an accurate summary, plus a real Features section and the full CLI flag list.
+  - `CLAUDE.md`'s own "Colocated unit tests, cross-cutting golden tests... See 'Testing' below"
+    pointed at a "## Testing" section that never existed in this file — likely planned in the
+    original scaffold and never written. Rewritten in place instead of adding a section that would
+    have just duplicated CONTRIBUTING.md's existing testing conventions.
+  - `CLAUDE.md`'s "How to add a new builtin function" recipe still pointed at
+    `src/runtime/shared/{strings,math,formatting}.ts` as where new builtin logic goes — stale as of
+    step 14's finding that pure/stateless builtins live in `prelude.ts` instead (see that step's
+    notes above). Rewritten to point at the actual current recipe.
+  - `src/ir/lower-expressions.ts` still carried a `TODO (build order step 13 for DEF FN...)` even
+    though step 13 confirmed the file needs no real implementation at all (expression lowering
+    turned out to always happen inline — see the step 13 notes). Rewritten as a closed-out finding,
+    matching the convention already used for `strings.ts`/`math.ts`/`values.ts`/`symbol-table.ts`.
+  - The "Staged build order" section's closing line ("every file not yet reached is a stub with a
+    TODO...") was written when steps were still in progress and no longer described anything real
+    once all 20 landed — replaced with a pointer at which files intentionally stayed stubs and why.
+  - `CONTRIBUTING.md`'s "Debugging generated code" section had an "(once implemented per...)" hedge
+    on `--emit-ast`/`--emit-steps` left over from before step 19 implemented them; also added the
+    `--standalone` example and a note that both debug flags bypass semantic analysis on purpose.
+  - `DIALECT.md`'s status line still said "as of build order step 16" even though steps 17–19 (none
+    of which touched BASIC language semantics, only the web UI and CLI) had landed since — bumped
+    to reflect the project being complete as of step 20, with no content changes needed beyond that
+    (DIALECT.md's substance was already kept current at each step that actually changed semantics).
+
+  No code changes in this step — verification was the existing full suite (`tsc --noEmit` in both
+  workspaces, `vitest run`, `eslint .`, `npm run build` + `npm run web:build`) passing exactly as
+  it did at the end of step 19, confirming the docs pass touched nothing behavioral.
+
+All 20 build-order steps are now complete. `basic2js` compiles classic line-numbered BASIC to
+JavaScript end-to-end — lexer through a browser-and-Node-both runtime — with a CLI, a web UI, and
+a test suite (colocated unit + cross-cutting golden + CLI integration tests) covering every
+statement, builtin, and documented edge case along the way.

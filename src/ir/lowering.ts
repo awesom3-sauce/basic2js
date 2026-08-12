@@ -1,6 +1,6 @@
 // Lowering orchestrator: Program (AST) -> LoweredProgram (Step[] + lineToStep + DATA pool + FN defs).
 
-import type { Line, Program } from "../ast/program.js";
+import type { Program } from "../ast/program.js";
 import type { Statement } from "../ast/statements.js";
 import type { BasicValue } from "../ast/types.js";
 import type { FnDef, LoweredProgram, Step } from "./program.js";

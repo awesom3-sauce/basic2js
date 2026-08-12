@@ -37,13 +37,17 @@ npx vitest run tests/golden/golden.test.ts
 
 ## Debugging generated code
 
-The CLI's `run`/`convert` commands support (once implemented per CLAUDE.md's build order step 19):
-
 ```bash
 node dist/cli/index.js run program.bas --emit-ast     # dump the parsed AST instead of executing
 node dist/cli/index.js run program.bas --emit-steps    # dump the lowered Step[]/lineToStep IR
 node dist/cli/index.js convert program.bas -o out.js   # write the emitted JS to a file for inspection
+node dist/cli/index.js convert program.bas --standalone -o out.js && node out.js   # ...and make it runnable with plain `node`, no basic2js install needed
 ```
+
+Both `--emit-ast` and `--emit-steps` bypass semantic analysis (they call the parser/lowering
+stages directly rather than going through `compile()`), so they still work on a program with a
+compile-time `TYPE_MISMATCH`/`UNDEFINED_LINE` error — often exactly when you want to see the AST/
+`Step[]`, to see why.
 
 ## Lint / format
 

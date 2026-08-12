@@ -6,7 +6,7 @@ structured dialect like QBasic. It is written as a spec-as-built: keep it in syn
 and emitter as each feature lands (see CLAUDE.md's staged build order), and use it as the
 reference when writing golden tests.
 
-Status: as of build order step 16, every construct documented below is implemented (see
+Status: complete as of build order step 20 — every construct documented below is implemented (see
 CLAUDE.md's "Progress" notes for exactly which build-order step landed each one) — this file
 describes the compiler as it actually behaves today, not a target spec for future work.
 
