@@ -15,7 +15,7 @@
 // "not implemented yet" ParseError rather than being silently mis-parsed.
 //
 // OPEN/CLOSE, plus PRINT/INPUT's `#fileNumber` forms, are the GW-BASIC
-// dialect extension (see src/dialect.ts) — gated by `requireGwBasic`
+// dialect extension (see src/dialect.ts) — gated by `requireDialectKeyword`
 // rather than by the lexer, since these keywords/operators are always
 // tokenized regardless of dialect (so a classic-dialect program using them
 // gets a clear dialect-mismatch error, not a confusing generic one).

@@ -292,6 +292,38 @@ comment for why that's sufficient.
   `(rt.isFileEof(n) ? -1 : 0)`, matching every comparison operator's own convention. Any future
   runtime call feeding a JS boolean into expression position needs the same wrapping.
 
+## Adding a dialect
+
+The GW-BASIC dialect extension (above) and its later generalization into a data-driven
+`DialectSpec` model (`src/dialect.ts`) leave a concrete recipe for a real third dialect (Applesoft,
+Commodore BASIC V2, ...):
+
+1. Write the new dialect's `DialectSpec` in `src/dialect.ts` — fill in whichever of
+   `extraKeywords`/`droppedKeywords`/`unsupportedKeywords`/`extraBuiltins`/`identifierRule`/
+   `disallowedSuffixes`/`builtinOverrides` it actually needs; leave the rest at their empty/`"full"`
+   defaults, matching `CLASSIC_SPEC`/`GWBASIC_SPEC`.
+2. Add the new dialect's literal to the `Dialect` union and register its spec in `DIALECT_SPECS`.
+3. For each `extraKeywords` entry that's a genuinely new lexer keyword (not a gated _form_ of an
+   existing one, like `gwbasic`'s `"PRINT #"`), add it to `src/lexer/keywords.ts`'s `KEYWORDS` set
+   — the lexer always recognizes the union of every dialect's vocabulary, gating happens in the
+   parser.
+4. Add the AST/`Step`/emission support the new construct needs, per CLAUDE.md's "How to add a new
+   BASIC statement"/"How to add a new builtin function" recipes — call `requireDialectKeyword`
+   (`src/parser/parse-statements.ts`) at the parse function's entry point for an `extraKeywords`
+   entry, or wire a real `checkBaselineKeywordAvailability` call at the relevant baseline
+   construct's dispatch point in `parseStatement` for a `droppedKeywords` entry (no existing call
+   site does this yet — Commodore BASIC V2 dropping `WHILE`/`WEND` would be the first).
+5. For a hardware/platform-only construct with no JS equivalent (`PEEK`/`POKE`/graphics commands),
+   add it to `unsupportedKeywords` with a clear reason string instead of building any AST/emission
+   support for it at all — see this project's "clear rejection over silent misinterpretation"
+   posture (Open Decisions, below).
+6. Add CLI (`--dialect <name>`, `src/cli/index.ts`'s `parseDialectOption`) and web UI
+   (`web/src/components/DialectSelector`) support for the new literal.
+7. Document every syntax/semantics delta in this file, in its own `## <Dialect> dialect extension`
+   section (following the GW-BASIC section's structure above).
+8. Add golden fixtures (`tests/golden/programs/`, mirrored into `web/src/examples/` — see
+   CONTRIBUTING.md) exercising the new dialect's real behavior.
+
 ## Open Decisions / Locked Defaults
 
 These behaviors vary across real historical BASIC interpreters and weren't pinned down by a single

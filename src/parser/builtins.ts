@@ -66,7 +66,7 @@ export const BUILTIN_FUNCTIONS: ReadonlyMap<string, BuiltinArity> = new Map([
   ["tan", { min: 1, max: 1 }],
 
   // GW-BASIC dialect extension (file I/O — see src/dialect.ts and
-  // GWBASIC_ONLY_BUILTINS below). `EOF(n)` tests whether file #n has been
+  // DialectSpec.extraBuiltins). `EOF(n)` tests whether file #n has been
   // read to its end.
   ["eof", { min: 1, max: 1 }],
 ]);

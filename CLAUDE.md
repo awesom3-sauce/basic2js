@@ -10,8 +10,10 @@ with the original program, including full support for unstructured `GOTO`/`GOSUB
 It ships as a Node.js CLI (`basic2js convert`, `basic2js run`) and a small web UI
 ([web/](web/), deployed to Vercel). Two BASIC dialects are supported (`src/dialect.ts`): the
 default `"classic"` spec, and `"gwbasic"`, which adds GW-BASIC's sequential file I/O
-(`OPEN`/`CLOSE`/`PRINT #`/`INPUT #`/`EOF()`) — see DIALECT.md's "GW-BASIC dialect extension"
-section and this file's "Progress" notes for how dialect selection threads through the pipeline.
+(`OPEN`/`CLOSE`/`PRINT #`/`INPUT #`/`EOF()`). Dialect selection is expressed as a data-driven
+`DialectSpec` per dialect (also `src/dialect.ts`), consulted by the lexer (identifier
+normalization), parser (keyword/builtin gating), and emitter (builtin-emission overrides) — see
+DIALECT.md's "Adding a dialect" recipe and this file's "Progress" notes below for exactly how.
 
 It is currently a **single, focused language pair** (BASIC → JS), not a generic multi-language
 framework — see "Future: multiple language pairs" below for the deliberate seam that keeps a
@@ -166,7 +168,7 @@ node dist/cli/index.js convert program.bas --standalone -o out.js && node out.js
 
 If the statement is dialect-specific (only legal under `"gwbasic"`, say — see `src/dialect.ts`),
 gate it in the parser, not the lexer: keep the keyword unconditionally recognized by the lexer, and
-call `requireGwBasic(cursor, token, "FEATURE NAME")` (`src/parser/parse-statements.ts`) at the
+call `requireDialectKeyword(cursor, token, "FEATURE NAME")` (`src/parser/parse-statements.ts`) at the
 parse function's entry point instead. This gives a classic-dialect program using it one clear
 "X is a GW-BASIC dialect extension" error rather than a confusing generic syntax error — see
 DIALECT.md's "GW-BASIC dialect extension" section for the precedent.
@@ -813,3 +815,23 @@ statement, builtin, and documented edge case along the way.
   delegation + cross-instance `Map` persistence tests), and the CLI (`--dialect gwbasic` against a
   real temp file on the real filesystem, `--dialect`'s gating error under the default dialect, and
   its own unrecognized-value error).
+
+- **Multi-dialect capability model (follow-on generalization)** — replaced the single-flag
+  `requireGwBasic` check with a data-driven `DialectSpec` per dialect (`src/dialect.ts`), so a
+  future dialect can express not just additive syntax but also removing a baseline construct
+  (`droppedKeywords`), rejecting a construct with no JS equivalent (`unsupportedKeywords`),
+  changing identifier normalization (`identifierRule`), disallowing a type suffix
+  (`disallowedSuffixes`), and overriding a shared builtin's JS emission (`builtinOverrides`) — none
+  of which the original additive-only model could express (real gaps found by looking at what
+  Applesoft BASIC and Commodore BASIC V2 actually need, see
+  `docs/superpowers/specs/2026-08-11-multi-dialect-capability-model-design.md`). `dialect` now
+  reaches three pipeline stages instead of one: the lexer (identifier normalization), the parser
+  (generalized from `requireGwBasic`), and the emitter (builtin-emission overrides, threaded
+  through `emitExpression`'s new third parameter the same way `locals` already threads through it).
+  `classic`/`gwbasic` were refactored onto the new model losslessly — every axis beyond what
+  `gwbasic` already needed (`droppedKeywords`/`unsupportedKeywords`/`identifierRule` truncation/
+  `disallowedSuffixes`/`builtinOverrides`) stays empty/`"full"` for both, proven inert by the full
+  existing suite passing unchanged, with the new axes themselves covered by direct unit tests
+  against synthetic (test-only, not registered in the real `Dialect` union) `DialectSpec` objects.
+  No third dialect was added — Applesoft/Commodore BASIC V2 remain documented, deliberately
+  deferred follow-on work (see DIALECT.md's new "Adding a dialect" recipe for the concrete path).

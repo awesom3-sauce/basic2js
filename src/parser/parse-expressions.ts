@@ -18,9 +18,8 @@
 // known builtin parses as a CallExpr (with an arity check against the same
 // table); anything else parses as an ArrayRef, as before. See builtins.ts's
 // header comment for the "only reserved in call position" scope decision,
-// and its GWBASIC_ONLY_BUILTINS for the (currently one-member) subset
-// that's only reserved when the "gwbasic" dialect is active (see
-// src/dialect.ts).
+// and src/dialect.ts's DialectSpec.extraBuiltins for the dialect-specific
+// builtins like EOF (only available when the "gwbasic" dialect is active).
 
 import type { Expression } from "../ast/expressions.js";
 import { lookupBuiltin } from "./builtins.js";
