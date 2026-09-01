@@ -105,7 +105,7 @@ describe("checkBaselineKeywordAvailability", () => {
     };
     expect(checkBaselineKeywordAvailability(synthetic, "WHILE")).toEqual({
       ok: false,
-      message: 'WHILE is not available in the "classic" dialect',
+      message: "WHILE is not available in the No-WHILE BASIC dialect",
     });
   });
 });

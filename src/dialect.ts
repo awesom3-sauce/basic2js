@@ -25,6 +25,15 @@
 // it, so nothing past parsing needs to re-check dialect for gating
 // purposes, and neither analysis nor lowering needs behavioral overrides.
 //
+// One deliberate exception to "gating lives in the parser": a disallowed
+// type suffix (disallowedSuffixes/isSuffixAllowed) is rejected by the
+// LEXER, raising a LexError at tokenize time, not a ParseError -- suffix
+// legality really is a lexical question (part of how an identifier's own
+// characters are scanned), not a syntactic one. Both keyword-availability
+// checks below (checkExtraKeywordAvailability/checkBaselineKeywordAvailability)
+// instead raise ParseErrors at parse time, since keyword gating is a
+// genuinely syntactic question -- which statement forms are legal.
+//
 // - `"classic"` (the default): the original locked spec -- see DIALECT.md.
 // - `"gwbasic"`: `"classic"` plus GW-BASIC's sequential file I/O
 //   (`OPEN`/`CLOSE`/`PRINT #`/`INPUT #`/`EOF()`) -- see DIALECT.md's
@@ -101,7 +110,7 @@ export interface DialectSpec {
   readonly builtinOverrides: ReadonlyMap<string, (args: readonly string[]) => string>;
 }
 
-const CLASSIC_SPEC: DialectSpec = {
+const CLASSIC_SPEC: DialectSpec = Object.freeze<DialectSpec>({
   id: "classic",
   displayName: "Classic BASIC",
   extraKeywords: new Set(),
@@ -111,9 +120,9 @@ const CLASSIC_SPEC: DialectSpec = {
   identifierRule: "full",
   disallowedSuffixes: new Set(),
   builtinOverrides: new Map(),
-};
+});
 
-const GWBASIC_SPEC: DialectSpec = {
+const GWBASIC_SPEC: DialectSpec = Object.freeze<DialectSpec>({
   id: "gwbasic",
   displayName: "GW-BASIC",
   // "PRINT #"/"INPUT #" are gated *forms* of the baseline PRINT/INPUT
@@ -126,7 +135,7 @@ const GWBASIC_SPEC: DialectSpec = {
   identifierRule: "full",
   disallowedSuffixes: new Set(),
   builtinOverrides: new Map(),
-};
+});
 
 const DIALECT_SPECS: Readonly<Record<Dialect, DialectSpec>> = {
   classic: CLASSIC_SPEC,
@@ -167,20 +176,30 @@ export function checkExtraKeywordAvailability(
   if (unsupportedReason !== undefined) return { ok: false, message: unsupportedReason };
   if (spec.extraKeywords.has(keyword)) return { ok: true };
   const owner = KEYWORD_OWNER.get(keyword);
-  const dialectName = owner?.displayName ?? "a different";
+  if (owner === undefined) {
+    // Defensive fallback -- every real keyword passed here today is owned
+    // by some registered spec (see KEYWORD_OWNER's doc comment), so this
+    // only fires for a keyword no dialect has ever claimed.
+    return { ok: false, message: `${keyword} is not available in any registered dialect` };
+  }
   return {
     ok: false,
-    message: `${keyword} is a ${dialectName} dialect extension — select the ${dialectName} dialect to use it`,
+    message: `${keyword} is a ${owner.displayName} dialect extension — select the ${owner.displayName} dialect to use it`,
   };
 }
 
 /**
  * Availability check for a baseline ("classic") keyword (e.g. WHILE) --
  * available by default, unless this dialect explicitly drops or rejects
- * it. Not wired into any real parser call site yet -- no dialect drops a
- * baseline keyword today -- but exercised directly by dialect.test.ts's
- * synthetic-dialect coverage; see DIALECT.md's "Adding a dialect" recipe
- * for where a future dialect would call this.
+ * it. Called automatically by parseStatement (parse-statements.ts) for
+ * every keyword-led statement, so a droppedKeywords/unsupportedKeywords
+ * entry is enforced with no per-statement wiring needed -- see DIALECT.md's
+ * "Adding a dialect" recipe. A no-op for classic/gwbasic today (both specs'
+ * droppedKeywords/unsupportedKeywords are empty); exercised directly by
+ * dialect.test.ts's synthetic-dialect coverage. Only covers STATEMENT
+ * position -- an expression-position construct (e.g. PEEK(n)) needs a
+ * different mechanism, since this check never sees anything but a
+ * statement's leading token; see DIALECT.md's recipe for that gap.
  */
 export function checkBaselineKeywordAvailability(
   spec: DialectSpec,
@@ -189,7 +208,7 @@ export function checkBaselineKeywordAvailability(
   const unsupportedReason = spec.unsupportedKeywords.get(keyword);
   if (unsupportedReason !== undefined) return { ok: false, message: unsupportedReason };
   if (spec.droppedKeywords.has(keyword)) {
-    return { ok: false, message: `${keyword} is not available in the "${spec.id}" dialect` };
+    return { ok: false, message: `${keyword} is not available in the ${spec.displayName} dialect` };
   }
   return { ok: true };
 }

@@ -18,7 +18,7 @@ export class TokenCursor {
 
   constructor(
     private readonly tokens: readonly Token[],
-    /** Which BASIC dialect is being parsed — see src/dialect.ts. Read by dialect-gated parse functions (e.g. parseOpenStmt) directly off the cursor, rather than threading a second parameter through every parse function. */
+    /** Which BASIC dialect is being parsed — see src/dialect.ts. Kept only as the constructor input `dialectSpec` is resolved from; dialect-gated parse functions read `dialectSpec` off the cursor instead of this raw literal. */
     readonly dialect: Dialect = DEFAULT_DIALECT,
   ) {
     if (tokens.length === 0) {

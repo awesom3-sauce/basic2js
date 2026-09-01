@@ -8,7 +8,7 @@ import type { Expression } from "../ast/expressions.js";
 import type { IfStmt, LetStmt } from "../ast/statements.js";
 
 function parseSource(source: string, dialect?: Dialect): Program {
-  return parse(tokenize(source), dialect);
+  return parse(tokenize(source, dialect), dialect);
 }
 
 /** Convenience for tests that only care about one line's statements. */

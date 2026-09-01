@@ -6,7 +6,7 @@ import type { Diagnostic } from "./diagnostic.js";
 import type { Dialect } from "../dialect.js";
 
 function analyzeSource(source: string, dialect?: Dialect): Diagnostic[] {
-  return analyze(parse(tokenize(source), dialect));
+  return analyze(parse(tokenize(source, dialect), dialect));
 }
 
 describe("analyze — LET/assignment", () => {

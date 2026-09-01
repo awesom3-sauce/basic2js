@@ -303,20 +303,41 @@ Commodore BASIC V2, ...):
    `disallowedSuffixes`/`builtinOverrides` it actually needs; leave the rest at their empty/`"full"`
    defaults, matching `CLASSIC_SPEC`/`GWBASIC_SPEC`.
 2. Add the new dialect's literal to the `Dialect` union and register its spec in `DIALECT_SPECS`.
-3. For each `extraKeywords` entry that's a genuinely new lexer keyword (not a gated _form_ of an
-   existing one, like `gwbasic`'s `"PRINT #"`), add it to `src/lexer/keywords.ts`'s `KEYWORDS` set
-   — the lexer always recognizes the union of every dialect's vocabulary, gating happens in the
-   parser.
-4. Add the AST/`Step`/emission support the new construct needs, per CLAUDE.md's "How to add a new
-   BASIC statement"/"How to add a new builtin function" recipes — call `requireDialectKeyword`
-   (`src/parser/parse-statements.ts`) at the parse function's entry point for an `extraKeywords`
-   entry, or wire a real `checkBaselineKeywordAvailability` call at the relevant baseline
-   construct's dispatch point in `parseStatement` for a `droppedKeywords` entry (no existing call
-   site does this yet — Commodore BASIC V2 dropping `WHILE`/`WEND` would be the first).
-5. For a hardware/platform-only construct with no JS equivalent (`PEEK`/`POKE`/graphics commands),
-   add it to `unsupportedKeywords` with a clear reason string instead of building any AST/emission
-   support for it at all — see this project's "clear rejection over silent misinterpretation"
-   posture (Open Decisions, below).
+3. Add every genuinely new lexer keyword the spec introduces to `src/lexer/keywords.ts`'s
+   `KEYWORDS` set — this applies to an `extraKeywords` entry that isn't a gated _form_ of an
+   existing keyword (like `gwbasic`'s `"PRINT #"`), a `droppedKeywords` entry (the keyword must
+   still lex as a real `Keyword` token for its own dialect for the rejection below to ever see it),
+   and an `unsupportedKeywords` entry alike. The lexer always recognizes the union of every
+   dialect's vocabulary; gating happens afterward, in the parser. **This step is easy to skip by
+   mistake for `droppedKeywords`/`unsupportedKeywords` entries specifically** — it's obviously
+   required for a new keyword no dialect has ever seen before, but just as required for a keyword
+   another dialect already registers, since `KEYWORDS` is a single flat set, not per-dialect. Miss
+   it and the keyword lexes as a plain `Identifier`, so neither availability check below ever runs
+   and the rejection silently never fires.
+4. For a **statement-position** construct (the keyword starts the statement — e.g. a dropped
+   `WHILE`, or an unsupported `POKE` used as `POKE 1, 2`): `parseStatement`
+   (`src/parser/parse-statements.ts`) already calls `checkBaselineKeywordAvailability` on every
+   keyword-led statement before dispatching to its parse function, so a `droppedKeywords` or
+   `unsupportedKeywords` entry is enforced automatically — no per-statement wiring needed for
+   those two axes. An `extraKeywords` entry that's a genuinely new statement keyword still needs
+   real AST/`Step`/emission support, per CLAUDE.md's "How to add a new BASIC statement" recipe,
+   with its parse function calling `requireDialectKeyword` (`src/parser/parse-statements.ts`) at
+   its entry point the way `OPEN`/`CLOSE`/`PRINT #`/`INPUT #` already do.
+5. For an **expression-position** construct (the keyword appears inside an expression — e.g.
+   `PEEK(n)` used as `X = PEEK(49152)`): step 4's `parseStatement` guard does **not** cover this —
+   it only ever inspects a statement's leading token, and an expression-position keyword can appear
+   anywhere inside one. Recognize it instead via the builtin-function registry
+   (`src/parser/builtins.ts`'s `BUILTIN_FUNCTIONS` plus the spec's `extraBuiltins`, per CLAUDE.md's
+   "How to add a new builtin function" recipe) if it has real JS semantics, or via a bespoke check
+   in `parse-expressions.ts`'s `parsePrimary` if it doesn't fit the builtin-call shape. A
+   hardware/platform-only construct with no JS equivalent at all (`PEEK`/`POKE`, graphics commands)
+   should still list its statement-position form (if any) in `unsupportedKeywords` for the clear,
+   automatic rejection step 4 describes — but its expression-position form (`PEEK(n)`) needs its
+   own explicit rejection built at this step's `parsePrimary`/builtin-registration layer instead,
+   since `unsupportedKeywords` is never consulted there. Building neither for an expression-position
+   construct is exactly the "silent misinterpretation" outcome this project's "clear rejection over
+   silent misinterpretation" posture forbids (Open Decisions, below) — a bare `PEEK` would otherwise
+   quietly parse as an ordinary variable reference.
 6. Add CLI (`--dialect <name>`, `src/cli/index.ts`'s `parseDialectOption`) and web UI
    (`web/src/components/DialectSelector`) support for the new literal.
 7. Document every syntax/semantics delta in this file, in its own `## <Dialect> dialect extension`

@@ -54,7 +54,7 @@ import { numberValue, stringValue } from "./token-value.js";
 import { ParseError } from "./errors.js";
 import type { Token } from "../lexer/token.js";
 import type { TokenCursor } from "./token-cursor.js";
-import { checkExtraKeywordAvailability } from "../dialect.js";
+import { checkBaselineKeywordAvailability, checkExtraKeywordAvailability } from "../dialect.js";
 
 /**
  * True when the cursor is at a token that ends the current statement:
@@ -101,6 +101,10 @@ export function parseStatement(cursor: TokenCursor): Statement {
   }
 
   if (token.type === "Keyword") {
+    const availability = checkBaselineKeywordAvailability(cursor.dialectSpec, token.text);
+    if (!availability.ok) {
+      throw new ParseError(availability.message, token.line, token.col);
+    }
     switch (token.text) {
       case "PRINT":
         return parsePrintStmt(cursor);

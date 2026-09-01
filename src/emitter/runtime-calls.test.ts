@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { BUILTIN_FUNCTIONS } from "../parser/builtins.js";
 import { builtinKeysMatch, resolveRuntimeCall, RUNTIME_CALLS } from "./runtime-calls.js";
+import type { EmitCall } from "./runtime-calls.js";
 
 describe("runtime-calls / builtins key-set consistency", () => {
   it("RUNTIME_CALLS has exactly the same keys as BUILTIN_FUNCTIONS", () => {
@@ -32,18 +33,14 @@ describe("resolveRuntimeCall", () => {
   });
 
   it("prefers an override over the shared table's own entry for the same name", () => {
-    const overrides = new Map<string, (args: readonly string[]) => string>([
-      ["rnd", () => "__dialectSpecificRnd()"],
-    ]);
+    const overrides = new Map<string, EmitCall>([["rnd", () => "__dialectSpecificRnd()"]]);
     const result = resolveRuntimeCall("rnd", overrides);
     expect(result).toBeDefined();
     expect(result!([])).toBe("__dialectSpecificRnd()");
   });
 
   it("an override for a name with no shared-table entry at all still resolves", () => {
-    const overrides = new Map<string, (args: readonly string[]) => string>([
-      ["peek", (a) => `__peek(${a[0]})`],
-    ]);
+    const overrides = new Map<string, EmitCall>([["peek", (a) => `__peek(${a[0]})`]]);
     const result = resolveRuntimeCall("peek", overrides);
     expect(result).toBeDefined();
     expect(result!(["1"])).toBe("__peek(1)");

@@ -6,7 +6,7 @@ import type { LoweredProgram } from "./program.js";
 import type { Dialect } from "../dialect.js";
 
 function lowerSource(source: string, dialect?: Dialect): LoweredProgram {
-  return lower(parse(tokenize(source), dialect));
+  return lower(parse(tokenize(source, dialect), dialect));
 }
 
 describe("lower — statement kinds", () => {

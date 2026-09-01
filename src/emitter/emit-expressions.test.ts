@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { emitExpression, NO_BUILTIN_OVERRIDES } from "./emit-expressions.js";
 import type { Expression } from "../ast/expressions.js";
+import type { EmitCall } from "./runtime-calls.js";
 
 const rndCall: Expression = {
   kind: "CallExpr",
@@ -18,9 +19,7 @@ describe("emitExpression — builtinOverrides", () => {
   });
 
   it("an override replaces the shared table's emission for that name", () => {
-    const overrides = new Map<string, (args: readonly string[]) => string>([
-      ["rnd", (a) => `__dialectRnd(${a[0]})`],
-    ]);
+    const overrides = new Map<string, EmitCall>([["rnd", (a) => `__dialectRnd(${a[0]})`]]);
     expect(emitExpression(rndCall, undefined, overrides)).toBe("__dialectRnd(1)");
   });
 });

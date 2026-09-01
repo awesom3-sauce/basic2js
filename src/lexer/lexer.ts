@@ -142,7 +142,7 @@ export function tokenize(source: string, dialect: Dialect = DEFAULT_DIALECT): To
         const suffix = hasSuffix ? rawLine.charAt(pos) : "";
         if (hasSuffix && !isSuffixAllowed(suffix as TypeSuffix, spec)) {
           throw new LexError(
-            `"${suffix}" is not a valid type suffix in the "${dialect}" dialect`,
+            `"${suffix}" is not a valid type suffix in the ${spec.displayName} dialect`,
             sourceLine,
             startCol,
           );
