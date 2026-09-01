@@ -23,12 +23,13 @@
 // src/dialect.ts).
 
 import type { Expression } from "../ast/expressions.js";
-import { GWBASIC_ONLY_BUILTINS, lookupBuiltin } from "./builtins.js";
+import { lookupBuiltin } from "./builtins.js";
 import { splitSuffix } from "./identifier.js";
 import { lookupBinaryOp, UNARY_MINUS_PRECEDENCE, UNARY_NOT_PRECEDENCE } from "./precedence.js";
 import { numberValue, stringValue } from "./token-value.js";
 import { ParseError } from "./errors.js";
 import type { TokenCursor } from "./token-cursor.js";
+import { isBuiltinAvailable } from "../dialect.js";
 
 export function parseExpression(cursor: TokenCursor, minPrecedence = 0): Expression {
   let left = parseUnary(cursor);
@@ -79,14 +80,12 @@ function parsePrimary(cursor: TokenCursor): Expression {
     if (cursor.check("Operator", "(")) {
       const calleeKey = name + suffix;
       const builtin = lookupBuiltin(calleeKey);
-      // A GW-BASIC-only builtin (currently just EOF) is only reserved when
-      // that dialect is active (see src/dialect.ts) — otherwise it's
-      // treated exactly as if it weren't in the registry at all, falling
-      // through to the ordinary ArrayRef case below.
-      if (
-        builtin !== undefined &&
-        (!GWBASIC_ONLY_BUILTINS.has(calleeKey) || cursor.dialect === "gwbasic")
-      ) {
+      // A dialect-restricted builtin (currently just gwbasic's EOF) is
+      // only reserved when its owning dialect is active (see
+      // src/dialect.ts) — otherwise it's treated exactly as if it weren't
+      // in the registry at all, falling through to the ordinary ArrayRef
+      // case below.
+      if (builtin !== undefined && isBuiltinAvailable(cursor.dialectSpec, calleeKey)) {
         const args = parseIndexList(cursor);
         if (args.length < builtin.min || args.length > builtin.max) {
           throw new ParseError(

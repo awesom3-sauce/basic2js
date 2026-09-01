@@ -54,6 +54,7 @@ import { numberValue, stringValue } from "./token-value.js";
 import { ParseError } from "./errors.js";
 import type { Token } from "../lexer/token.js";
 import type { TokenCursor } from "./token-cursor.js";
+import { checkExtraKeywordAvailability } from "../dialect.js";
 
 /**
  * True when the cursor is at a token that ends the current statement:
@@ -73,18 +74,17 @@ function isStatementEnd(cursor: TokenCursor): boolean {
 }
 
 /**
- * Throws a clear ParseError if `cursor.dialect` isn't `"gwbasic"` — guards
- * every GW-BASIC-only construct (OPEN/CLOSE, PRINT #/INPUT #'s file-number
- * form — see src/dialect.ts). `token` supplies the error's line/col,
- * typically the keyword/operator token that triggered the check.
+ * Throws a clear ParseError if `keyword` isn't available under the active
+ * dialect — guards every gated construct (OPEN/CLOSE, PRINT #/INPUT #'s
+ * file-number form — see src/dialect.ts). `token` supplies the error's
+ * line/col, typically the keyword/operator token that triggered the
+ * check. Thin wrapper around dialect.ts's checkExtraKeywordAvailability,
+ * which does the actual per-dialect lookup.
  */
-function requireGwBasic(cursor: TokenCursor, token: Token, feature: string): void {
-  if (cursor.dialect !== "gwbasic") {
-    throw new ParseError(
-      `${feature} is a GW-BASIC dialect extension — select the GW-BASIC dialect to use it`,
-      token.line,
-      token.col,
-    );
+function requireDialectKeyword(cursor: TokenCursor, token: Token, keyword: string): void {
+  const result = checkExtraKeywordAvailability(cursor.dialectSpec, keyword);
+  if (!result.ok) {
+    throw new ParseError(result.message, token.line, token.col);
   }
 }
 
@@ -176,7 +176,7 @@ function parsePrintStmt(cursor: TokenCursor): PrintStmt {
   // dialect-mismatch error here rather than a confusing generic one.
   let fileNumber: Expression | undefined;
   if (cursor.check("Operator", "#")) {
-    requireGwBasic(cursor, printToken, "PRINT #");
+    requireDialectKeyword(cursor, printToken, "PRINT #");
     fileNumber = parseFileNumber(cursor);
     cursor.match("Operator", ",");
   }
@@ -393,7 +393,7 @@ function parseInputStmt(cursor: TokenCursor): InputStmt {
   // ever allowed in this form, so it's handled as an entirely separate
   // branch rather than folded into the prompt-parsing logic below.
   if (cursor.check("Operator", "#")) {
-    requireGwBasic(cursor, inputToken, "INPUT #");
+    requireDialectKeyword(cursor, inputToken, "INPUT #");
     const fileNumber = parseFileNumber(cursor);
     cursor.match("Operator", ",");
     return {
@@ -574,7 +574,7 @@ function parseRandomizeStmt(cursor: TokenCursor): RandomizeStmt {
  */
 function parseOpenStmt(cursor: TokenCursor): OpenStmt {
   const openToken = cursor.expect("Keyword", "OPEN");
-  requireGwBasic(cursor, openToken, "OPEN");
+  requireDialectKeyword(cursor, openToken, "OPEN");
   const path = parseExpression(cursor);
   cursor.expect("Keyword", "FOR");
   const mode = parseFileMode(cursor);
@@ -601,7 +601,7 @@ function parseFileMode(cursor: TokenCursor): "input" | "output" | "append" {
  */
 function parseCloseStmt(cursor: TokenCursor): CloseStmt {
   const closeToken = cursor.expect("Keyword", "CLOSE");
-  requireGwBasic(cursor, closeToken, "CLOSE");
+  requireDialectKeyword(cursor, closeToken, "CLOSE");
   const fileNumbers: Expression[] = [];
   if (!isStatementEnd(cursor)) {
     for (;;) {

@@ -24,13 +24,14 @@
 // identical, so a new builtin can't be added to one and forgotten in the
 // other.
 //
-// GWBASIC_ONLY_BUILTINS marks the (currently one-member) subset that's
-// only reserved when the "gwbasic" dialect is active (see src/dialect.ts)
-// — checked by parse-expressions.ts's parsePrimary alongside
-// `lookupBuiltin`. In the "classic" dialect, a name in this set is treated
-// exactly as if it weren't in BUILTIN_FUNCTIONS at all (an ordinary
-// variable/array, never reserved) — unlike every other builtin, which is
-// reserved in call position in both dialects.
+// Dialect-restricted builtins (currently just gwbasic's "eof") are marked
+// via each dialect's own DialectSpec.extraBuiltins (see src/dialect.ts) --
+// parse-expressions.ts's parsePrimary checks isBuiltinAvailable alongside
+// lookupBuiltin. In a dialect that doesn't add a given restricted
+// builtin, that name is treated exactly as if it weren't in
+// BUILTIN_FUNCTIONS at all (an ordinary variable/array, never reserved)
+// -- unlike every universal builtin, which is reserved in call position
+// under every dialect.
 
 export interface BuiltinArity {
   readonly min: number;
@@ -69,8 +70,6 @@ export const BUILTIN_FUNCTIONS: ReadonlyMap<string, BuiltinArity> = new Map([
   // read to its end.
   ["eof", { min: 1, max: 1 }],
 ]);
-
-export const GWBASIC_ONLY_BUILTINS: ReadonlySet<string> = new Set(["eof"]);
 
 export function lookupBuiltin(calleeKey: string): BuiltinArity | undefined {
   return BUILTIN_FUNCTIONS.get(calleeKey);
