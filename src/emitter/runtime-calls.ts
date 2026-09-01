@@ -77,3 +77,24 @@ export function builtinKeysMatch(): boolean {
   for (const key of builtinKeys) if (!runtimeKeys.has(key)) return false;
   return true;
 }
+
+/**
+ * Resolves `calleeKey`'s JS-emission function, checking `overrides`
+ * (a dialect's DialectSpec.builtinOverrides — see src/dialect.ts) before
+ * falling back to the shared RUNTIME_CALLS table. Takes just the
+ * overrides map, not a full DialectSpec, so this stays testable and
+ * usable in isolation from the rest of the dialect model — the same
+ * "thread the narrowest useful value" choice emit-expressions.ts's
+ * `locals` parameter already makes.
+ *
+ * The parameter type is written out structurally (matching EmitCall's own
+ * shape) rather than importing DialectSpec here — runtime-calls.ts is an
+ * emitter-layer module; src/dialect.ts is lower-level and imported BY the
+ * emitter, never the other way around.
+ */
+export function resolveRuntimeCall(
+  calleeKey: string,
+  overrides: ReadonlyMap<string, EmitCall>,
+): EmitCall | undefined {
+  return overrides.get(calleeKey) ?? RUNTIME_CALLS.get(calleeKey);
+}
