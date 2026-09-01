@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 import { emitExpression, NO_BUILTIN_OVERRIDES } from "./emit-expressions.js";
 import type { Expression } from "../ast/expressions.js";
 
-const rndCall: Expression = { kind: "CallExpr", callee: "rnd", args: [{ kind: "NumberLiteral", value: 1 }] };
+const rndCall: Expression = {
+  kind: "CallExpr",
+  callee: "rnd",
+  args: [{ kind: "NumberLiteral", value: 1 }],
+};
 
 describe("emitExpression — builtinOverrides", () => {
   it("with no overrides, a builtin call resolves through the shared RUNTIME_CALLS table", () => {

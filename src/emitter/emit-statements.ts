@@ -58,7 +58,10 @@ function emitStepBody(
       // Type-suffix coercion (build order step 15) happens here, at the
       // assignment site, not on `step.value` itself — matching DIALECT.md's
       // "enforced at assignment time, not on every intermediate expression".
-      const value = coerceForSuffix(step.target.suffix, emitExpression(step.value, undefined, builtinOverrides));
+      const value = coerceForSuffix(
+        step.target.suffix,
+        emitExpression(step.value, undefined, builtinOverrides),
+      );
       if (step.target.kind === "ArrayElement") {
         const indices = `[${step.target.indices.map((e) => emitExpression(e, undefined, builtinOverrides)).join(", ")}]`;
         const isString = step.target.suffix === "$";
@@ -75,7 +78,8 @@ function emitStepBody(
 
     case "For": {
       const key = JSON.stringify(varKey(step.variable, step.suffix));
-      const stepExpr = step.step === undefined ? "1" : emitExpression(step.step, undefined, builtinOverrides);
+      const stepExpr =
+        step.step === undefined ? "1" : emitExpression(step.step, undefined, builtinOverrides);
       const bodyPc = stepIndex + 1;
       const isInt = step.suffix === "%";
       // start/end/step are all evaluated first, using whatever value the
@@ -175,7 +179,10 @@ function emitStepBody(
         return `await rt.closeAllFiles(); pc = ${stepIndex + 1}; break;`;
       }
       const closes = step.fileNumbers
-        .map((fileNumber) => `await rt.closeFile(${emitExpression(fileNumber, undefined, builtinOverrides)});`)
+        .map(
+          (fileNumber) =>
+            `await rt.closeFile(${emitExpression(fileNumber, undefined, builtinOverrides)});`,
+        )
         .join(" ");
       return `${closes} pc = ${stepIndex + 1}; break;`;
     }

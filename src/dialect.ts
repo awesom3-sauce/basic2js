@@ -51,8 +51,7 @@ export type IdentifierRule = "full" | { readonly significantChars: number };
 
 /** Result of a keyword-availability check -- see checkExtraKeywordAvailability/checkBaselineKeywordAvailability. */
 export type KeywordAvailability =
-  | { readonly ok: true }
-  | { readonly ok: false; readonly message: string };
+  { readonly ok: true } | { readonly ok: false; readonly message: string };
 
 /**
  * The full set of ways a dialect can diverge from another. Every dialect

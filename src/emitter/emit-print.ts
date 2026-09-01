@@ -68,7 +68,9 @@ export function emitPrintCall(
       }
 
       case "tab":
-        lines.push(`__s += __tabTo(__s.length, ${emitExpression(segment.expr, undefined, builtinOverrides)});`);
+        lines.push(
+          `__s += __tabTo(__s.length, ${emitExpression(segment.expr, undefined, builtinOverrides)});`,
+        );
         break;
 
       case "spc":

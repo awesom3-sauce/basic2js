@@ -65,7 +65,12 @@ describe("checkExtraKeywordAvailability", () => {
       displayName: "Synthetic",
       extraKeywords: new Set(),
       droppedKeywords: new Set(),
-      unsupportedKeywords: new Map([["PEEK", "PEEK is not supported by basic2js: no meaningful JavaScript equivalent for direct memory access"]]),
+      unsupportedKeywords: new Map([
+        [
+          "PEEK",
+          "PEEK is not supported by basic2js: no meaningful JavaScript equivalent for direct memory access",
+        ],
+      ]),
       extraBuiltins: new Set(),
       identifierRule: "full",
       disallowedSuffixes: new Set(),
@@ -73,14 +78,17 @@ describe("checkExtraKeywordAvailability", () => {
     };
     expect(checkExtraKeywordAvailability(synthetic, "PEEK")).toEqual({
       ok: false,
-      message: "PEEK is not supported by basic2js: no meaningful JavaScript equivalent for direct memory access",
+      message:
+        "PEEK is not supported by basic2js: no meaningful JavaScript equivalent for direct memory access",
     });
   });
 });
 
 describe("checkBaselineKeywordAvailability", () => {
   it("allows a baseline keyword by default", () => {
-    expect(checkBaselineKeywordAvailability(getDialectSpec("classic"), "WHILE")).toEqual({ ok: true });
+    expect(checkBaselineKeywordAvailability(getDialectSpec("classic"), "WHILE")).toEqual({
+      ok: true,
+    });
   });
 
   it("rejects a keyword this synthetic dialect explicitly drops", () => {

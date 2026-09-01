@@ -23,7 +23,9 @@ export function emitFnDefs(
   fnDefs: ReadonlyMap<string, FnDef>,
   builtinOverrides: ReadonlyMap<string, EmitCall> = NO_BUILTIN_OVERRIDES,
 ): string {
-  return [...fnDefs.entries()].map(([key, def]) => emitOneFnDef(key, def, builtinOverrides)).join("\n  ");
+  return [...fnDefs.entries()]
+    .map(([key, def]) => emitOneFnDef(key, def, builtinOverrides))
+    .join("\n  ");
 }
 
 function emitOneFnDef(

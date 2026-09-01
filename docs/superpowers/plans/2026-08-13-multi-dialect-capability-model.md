@@ -16,9 +16,9 @@ implement the five divergence axes; the lexer/parser/emitter each call the ones 
 **Tech Stack:** TypeScript (strict, NodeNext), Vitest.
 
 **Depends on:** [`docs/superpowers/specs/2026-08-11-multi-dialect-capability-model-design.md`](../specs/2026-08-11-multi-dialect-capability-model-design.md)
-(the approved design spec — read it first for the *why*; this plan is the *how*) and the GW-BASIC
+(the approved design spec — read it first for the _why_; this plan is the _how_) and the GW-BASIC
 dialect extension (PR #1). **This plan assumes PR #1 is merged to `main` first** — every file
-path/line reference below reflects `main` *after* that merge, not `main`'s current state. Branch
+path/line reference below reflects `main` _after_ that merge, not `main`'s current state. Branch
 this work from an up-to-date `main` once PR #1 lands.
 
 ## Global Constraints
@@ -30,7 +30,7 @@ this work from an up-to-date `main` once PR #1 lands.
   the spec's explicit non-goals.
 - **Exact error-message text for the existing GW-BASIC dialect-gating errors must be preserved
   character-for-character** (`"OPEN is a GW-BASIC dialect extension — select the GW-BASIC dialect
-  to use it"`, and the `PRINT #`/`INPUT #`/`CLOSE` equivalents) — several existing tests
+to use it"`, and the `PRINT #`/`INPUT #`/`CLOSE` equivalents) — several existing tests
   (`parser.test.ts`, `tests/cli.test.ts`) assert on this exact substring.
 - Run `npx tsc --noEmit` and `npx vitest run` after every task; both must be clean before moving
   to the next task.
@@ -44,33 +44,35 @@ this work from an up-to-date `main` once PR #1 lands.
 
 ## File Structure
 
-| File | Change |
-|---|---|
-| `src/dialect.ts` | Grows: adds `DialectSpec`, `IdentifierRule`, `KeywordAvailability` types and `CLASSIC_SPEC`/`GWBASIC_SPEC`/`getDialectSpec`/`checkExtraKeywordAvailability`/`checkBaselineKeywordAvailability`/`isBuiltinAvailable`/`normalizeIdentifierName`/`isSuffixAllowed`. Kept as one file (not split into a directory) — see Task 1's note. |
-| `src/dialect.test.ts` | New — colocated unit tests for every function `dialect.ts` adds. |
-| `src/parser/token-cursor.ts` | `TokenCursor` gains a `dialectSpec: DialectSpec` field, resolved once at construction. |
-| `src/parser/parse-statements.ts` | `requireGwBasic` replaced by a `requireDialectKeyword` helper built on `checkExtraKeywordAvailability`; same 4 call sites (OPEN/CLOSE/PRINT #/INPUT #). |
-| `src/parser/parse-expressions.ts` | The `GWBASIC_ONLY_BUILTINS`-specific check replaced by `isBuiltinAvailable(cursor.dialectSpec, calleeKey)`. |
-| `src/parser/builtins.ts` | `GWBASIC_ONLY_BUILTINS` removed (superseded by `dialect.ts`'s `extraBuiltins` field). |
-| `src/lexer/lexer.ts` | `tokenize(source, dialect?)` gains the dialect parameter; identifier-scanning branch calls `normalizeIdentifierName`/`isSuffixAllowed`. |
-| `src/cli/commands/run.ts` | Its direct `tokenize(source)` call (for `--emit-ast`/`--emit-steps`) becomes `tokenize(source, dialect)`. |
-| `src/emitter/runtime-calls.ts` | Adds `resolveRuntimeCall(calleeKey, overrides)`. |
-| `src/emitter/emit-expressions.ts` | `emitExpression` gains a `builtinOverrides` parameter (third, defaulted) alongside the existing `locals`; exports a shared `NO_BUILTIN_OVERRIDES` sentinel. |
-| `src/emitter/emit-statements.ts`, `emit-print.ts`, `emit-input.ts`, `emit-read.ts`, `emit-fn-defs.ts` | Each threads `builtinOverrides` through their own signature to every `emitExpression(...)` call they make. |
-| `src/emitter/emit-program.ts` | `emit(lowered, dialect?)` gains the dialect parameter, resolves `builtinOverrides` once, passes it down. |
-| `src/index.ts` | `compile()` passes `dialect` to `emit()` too (already passes it to `parse()`). |
-| `DIALECT.md` | New "Adding a dialect" recipe. |
-| `CLAUDE.md` | `src/dialect.ts`'s header-comment summary and Progress notes corrected to describe the real (lexer + parser + emitter) threading. |
+| File                                                                                                  | Change                                                                                                                                                                                                                                                                                                                              |
+| ----------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/dialect.ts`                                                                                      | Grows: adds `DialectSpec`, `IdentifierRule`, `KeywordAvailability` types and `CLASSIC_SPEC`/`GWBASIC_SPEC`/`getDialectSpec`/`checkExtraKeywordAvailability`/`checkBaselineKeywordAvailability`/`isBuiltinAvailable`/`normalizeIdentifierName`/`isSuffixAllowed`. Kept as one file (not split into a directory) — see Task 1's note. |
+| `src/dialect.test.ts`                                                                                 | New — colocated unit tests for every function `dialect.ts` adds.                                                                                                                                                                                                                                                                    |
+| `src/parser/token-cursor.ts`                                                                          | `TokenCursor` gains a `dialectSpec: DialectSpec` field, resolved once at construction.                                                                                                                                                                                                                                              |
+| `src/parser/parse-statements.ts`                                                                      | `requireGwBasic` replaced by a `requireDialectKeyword` helper built on `checkExtraKeywordAvailability`; same 4 call sites (OPEN/CLOSE/PRINT #/INPUT #).                                                                                                                                                                             |
+| `src/parser/parse-expressions.ts`                                                                     | The `GWBASIC_ONLY_BUILTINS`-specific check replaced by `isBuiltinAvailable(cursor.dialectSpec, calleeKey)`.                                                                                                                                                                                                                         |
+| `src/parser/builtins.ts`                                                                              | `GWBASIC_ONLY_BUILTINS` removed (superseded by `dialect.ts`'s `extraBuiltins` field).                                                                                                                                                                                                                                               |
+| `src/lexer/lexer.ts`                                                                                  | `tokenize(source, dialect?)` gains the dialect parameter; identifier-scanning branch calls `normalizeIdentifierName`/`isSuffixAllowed`.                                                                                                                                                                                             |
+| `src/cli/commands/run.ts`                                                                             | Its direct `tokenize(source)` call (for `--emit-ast`/`--emit-steps`) becomes `tokenize(source, dialect)`.                                                                                                                                                                                                                           |
+| `src/emitter/runtime-calls.ts`                                                                        | Adds `resolveRuntimeCall(calleeKey, overrides)`.                                                                                                                                                                                                                                                                                    |
+| `src/emitter/emit-expressions.ts`                                                                     | `emitExpression` gains a `builtinOverrides` parameter (third, defaulted) alongside the existing `locals`; exports a shared `NO_BUILTIN_OVERRIDES` sentinel.                                                                                                                                                                         |
+| `src/emitter/emit-statements.ts`, `emit-print.ts`, `emit-input.ts`, `emit-read.ts`, `emit-fn-defs.ts` | Each threads `builtinOverrides` through their own signature to every `emitExpression(...)` call they make.                                                                                                                                                                                                                          |
+| `src/emitter/emit-program.ts`                                                                         | `emit(lowered, dialect?)` gains the dialect parameter, resolves `builtinOverrides` once, passes it down.                                                                                                                                                                                                                            |
+| `src/index.ts`                                                                                        | `compile()` passes `dialect` to `emit()` too (already passes it to `parse()`).                                                                                                                                                                                                                                                      |
+| `DIALECT.md`                                                                                          | New "Adding a dialect" recipe.                                                                                                                                                                                                                                                                                                      |
+| `CLAUDE.md`                                                                                           | `src/dialect.ts`'s header-comment summary and Progress notes corrected to describe the real (lexer + parser + emitter) threading.                                                                                                                                                                                                   |
 
 ---
 
 ### Task 1: `DialectSpec` capability model in `src/dialect.ts`
 
 **Files:**
+
 - Modify: `src/dialect.ts` (full rewrite — see below)
 - Test: `src/dialect.test.ts` (new)
 
 **Interfaces:**
+
 - Produces (used by every later task):
   - `export type Dialect = "classic" | "gwbasic";` (unchanged)
   - `export const DEFAULT_DIALECT: Dialect;` (unchanged)
@@ -163,7 +165,12 @@ describe("checkExtraKeywordAvailability", () => {
       displayName: "Synthetic",
       extraKeywords: new Set(),
       droppedKeywords: new Set(),
-      unsupportedKeywords: new Map([["PEEK", "PEEK is not supported by basic2js: no meaningful JavaScript equivalent for direct memory access"]]),
+      unsupportedKeywords: new Map([
+        [
+          "PEEK",
+          "PEEK is not supported by basic2js: no meaningful JavaScript equivalent for direct memory access",
+        ],
+      ]),
       extraBuiltins: new Set(),
       identifierRule: "full",
       disallowedSuffixes: new Set(),
@@ -171,14 +178,17 @@ describe("checkExtraKeywordAvailability", () => {
     };
     expect(checkExtraKeywordAvailability(synthetic, "PEEK")).toEqual({
       ok: false,
-      message: "PEEK is not supported by basic2js: no meaningful JavaScript equivalent for direct memory access",
+      message:
+        "PEEK is not supported by basic2js: no meaningful JavaScript equivalent for direct memory access",
     });
   });
 });
 
 describe("checkBaselineKeywordAvailability", () => {
   it("allows a baseline keyword by default", () => {
-    expect(checkBaselineKeywordAvailability(getDialectSpec("classic"), "WHILE")).toEqual({ ok: true });
+    expect(checkBaselineKeywordAvailability(getDialectSpec("classic"), "WHILE")).toEqual({
+      ok: true,
+    });
   });
 
   it("rejects a keyword this synthetic dialect explicitly drops", () => {
@@ -319,8 +329,7 @@ export type IdentifierRule = "full" | { readonly significantChars: number };
 
 /** Result of a keyword-availability check -- see checkExtraKeywordAvailability/checkBaselineKeywordAvailability. */
 export type KeywordAvailability =
-  | { readonly ok: true }
-  | { readonly ok: false; readonly message: string };
+  { readonly ok: true } | { readonly ok: false; readonly message: string };
 
 /**
  * The full set of ways a dialect can diverge from another. Every dialect
@@ -534,12 +543,14 @@ several tasks."
 ### Task 2: Generalize parser gating onto `DialectSpec`
 
 **Files:**
+
 - Modify: `src/parser/token-cursor.ts`
 - Modify: `src/parser/parse-statements.ts`
 - Modify: `src/parser/parse-expressions.ts`
 - Modify: `src/parser/builtins.ts`
 
 **Interfaces:**
+
 - Consumes: `DialectSpec`, `getDialectSpec`, `checkExtraKeywordAvailability`, `isBuiltinAvailable`
   from Task 1 (`src/dialect.js`).
 - Produces: `TokenCursor.dialectSpec: DialectSpec` (new field), consumed by every later parser
@@ -799,11 +810,13 @@ change -- full existing suite still green."
 ### Task 3: Dialect-aware lexer (identifier normalization + disallowed suffixes)
 
 **Files:**
+
 - Modify: `src/lexer/lexer.ts`
 - Modify: `src/cli/commands/run.ts`
 - Test: `src/lexer/lexer.test.ts`
 
 **Interfaces:**
+
 - Consumes: `Dialect`, `DEFAULT_DIALECT`, `getDialectSpec`, `normalizeIdentifierName`,
   `isSuffixAllowed` from Task 1 (`src/dialect.js`).
 - Produces: `tokenize(source: string, dialect: Dialect = DEFAULT_DIALECT): Token[]` (new second
@@ -813,7 +826,7 @@ change -- full existing suite still green."
 
 `normalizeIdentifierName`/`isSuffixAllowed` themselves are already fully covered by Task 1's
 `dialect.test.ts` (truncation, disallowed suffixes) — no real dialect truncates identifiers or
-disallows a suffix yet, so there's nothing new to prove *behaviorally* through `tokenize()` itself.
+disallows a suffix yet, so there's nothing new to prove _behaviorally_ through `tokenize()` itself.
 This task's own test just pins that `tokenize()` correctly accepts and threads a `dialect` argument
 through to those already-proven-correct helpers, with no change in output for `classic`/`gwbasic`
 (both use the identity-equivalent `identifierRule: "full"` / empty `disallowedSuffixes`).
@@ -848,7 +861,13 @@ typecheck/run — `tokenize` doesn't accept a second argument yet.
 In `src/lexer/lexer.ts`, add the import:
 
 ```typescript
-import { DEFAULT_DIALECT, getDialectSpec, isSuffixAllowed, normalizeIdentifierName, type Dialect } from "../dialect.js";
+import {
+  DEFAULT_DIALECT,
+  getDialectSpec,
+  isSuffixAllowed,
+  normalizeIdentifierName,
+  type Dialect,
+} from "../dialect.js";
 ```
 
 Change the function signature:
@@ -864,40 +883,40 @@ export function tokenize(source: string, dialect: Dialect = DEFAULT_DIALECT): To
 Find this block inside the identifier-scanning branch:
 
 ```typescript
-        const suffix = hasSuffix ? rawLine.charAt(pos) : "";
-        if (hasSuffix) pos++;
-        const identifierText = word.toLowerCase() + suffix;
-        tokens.push({
-          type: "Identifier",
-          text: identifierText,
-          value: identifierText,
-          line: sourceLine,
-          col: startCol,
-        });
-        continue;
+const suffix = hasSuffix ? rawLine.charAt(pos) : "";
+if (hasSuffix) pos++;
+const identifierText = word.toLowerCase() + suffix;
+tokens.push({
+  type: "Identifier",
+  text: identifierText,
+  value: identifierText,
+  line: sourceLine,
+  col: startCol,
+});
+continue;
 ```
 
 Replace with:
 
 ```typescript
-        const suffix = hasSuffix ? rawLine.charAt(pos) : "";
-        if (hasSuffix && !isSuffixAllowed(suffix as TypeSuffix, spec)) {
-          throw new LexError(
-            `"${suffix}" is not a valid type suffix in the "${dialect}" dialect`,
-            sourceLine,
-            startCol,
-          );
-        }
-        if (hasSuffix) pos++;
-        const identifierText = normalizeIdentifierName(word, spec.identifierRule) + suffix;
-        tokens.push({
-          type: "Identifier",
-          text: identifierText,
-          value: identifierText,
-          line: sourceLine,
-          col: startCol,
-        });
-        continue;
+const suffix = hasSuffix ? rawLine.charAt(pos) : "";
+if (hasSuffix && !isSuffixAllowed(suffix as TypeSuffix, spec)) {
+  throw new LexError(
+    `"${suffix}" is not a valid type suffix in the "${dialect}" dialect`,
+    sourceLine,
+    startCol,
+  );
+}
+if (hasSuffix) pos++;
+const identifierText = normalizeIdentifierName(word, spec.identifierRule) + suffix;
+tokens.push({
+  type: "Identifier",
+  text: identifierText,
+  value: identifierText,
+  line: sourceLine,
+  col: startCol,
+});
+continue;
 ```
 
 Add the `TypeSuffix` import at the top of the file too:
@@ -916,29 +935,29 @@ Expected: PASS — all existing tests plus the two new ones.
 In `src/cli/commands/run.ts`, find:
 
 ```typescript
-  if (options.emitAst) {
-    process.stdout.write(stringifyDebugJson(parse(tokenize(source), dialect)));
-    return;
-  }
+if (options.emitAst) {
+  process.stdout.write(stringifyDebugJson(parse(tokenize(source), dialect)));
+  return;
+}
 
-  if (options.emitSteps) {
-    process.stdout.write(stringifyDebugJson(lower(parse(tokenize(source), dialect))));
-    return;
-  }
+if (options.emitSteps) {
+  process.stdout.write(stringifyDebugJson(lower(parse(tokenize(source), dialect))));
+  return;
+}
 ```
 
 Replace with:
 
 ```typescript
-  if (options.emitAst) {
-    process.stdout.write(stringifyDebugJson(parse(tokenize(source, dialect), dialect)));
-    return;
-  }
+if (options.emitAst) {
+  process.stdout.write(stringifyDebugJson(parse(tokenize(source, dialect), dialect)));
+  return;
+}
 
-  if (options.emitSteps) {
-    process.stdout.write(stringifyDebugJson(lower(parse(tokenize(source, dialect), dialect))));
-    return;
-  }
+if (options.emitSteps) {
+  process.stdout.write(stringifyDebugJson(lower(parse(tokenize(source, dialect), dialect))));
+  return;
+}
 ```
 
 (`dialect` is already in scope — defined just above as `const dialect = options.dialect ??
@@ -952,10 +971,12 @@ Expected: PASS.
 - [ ] **Step 7: Manually verify `--emit-ast` still works for a GW-BASIC-dialect program**
 
 Run:
+
 ```bash
 echo '10 OPEN "A.TXT" FOR OUTPUT AS #1' > /tmp/gwtest.bas
 npx tsx src/cli/index.ts run /tmp/gwtest.bas --emit-ast --dialect gwbasic
 ```
+
 Expected: prints valid JSON for the parsed `Program` AST (containing an `OpenStmt` node), exit
 code 0 — confirms `tokenize(source, dialect)` really reaches the CLI's debug path now (previously
 `tokenize(source)` without a dialect would have been harmless here too, since the lexer was
@@ -982,10 +1003,12 @@ difference, pinned by regression tests. cli/commands/run.ts's
 ### Task 4: `resolveRuntimeCall` — builtin-override resolution
 
 **Files:**
+
 - Modify: `src/emitter/runtime-calls.ts`
 - Test: `src/emitter/runtime-calls.test.ts`
 
 **Interfaces:**
+
 - Consumes: `DialectSpec["builtinOverrides"]`'s type shape (structurally — no new import needed,
   see Step 3's note).
 - Produces: `export function resolveRuntimeCall(calleeKey: string, overrides: ReadonlyMap<string, EmitCall>): EmitCall | undefined;` — used by Task 5.
@@ -1091,6 +1114,7 @@ next task."
 ### Task 5: Thread `builtinOverrides` through the emitter, end to end
 
 **Files:**
+
 - Modify: `src/emitter/emit-expressions.ts`
 - Modify: `src/emitter/emit-statements.ts`
 - Modify: `src/emitter/emit-print.ts`
@@ -1102,6 +1126,7 @@ next task."
 - Test: `src/emitter/emit-expressions.test.ts` (new — see note below)
 
 **Interfaces:**
+
 - Consumes: `resolveRuntimeCall` (Task 4), `DialectSpec`, `getDialectSpec`, `Dialect`,
   `DEFAULT_DIALECT` (Task 1).
 - Produces: `emit(lowered: LoweredProgram, dialect: Dialect = DEFAULT_DIALECT): string` (new
@@ -1131,7 +1156,11 @@ import { describe, expect, it } from "vitest";
 import { emitExpression, NO_BUILTIN_OVERRIDES } from "./emit-expressions.js";
 import type { Expression } from "../ast/expressions.js";
 
-const rndCall: Expression = { kind: "CallExpr", callee: "rnd", args: [{ kind: "NumberLiteral", value: 1 }] };
+const rndCall: Expression = {
+  kind: "CallExpr",
+  callee: "rnd",
+  args: [{ kind: "NumberLiteral", value: 1 }],
+};
 
 describe("emitExpression — builtinOverrides", () => {
   it("with no overrides, a builtin call resolves through the shared RUNTIME_CALLS table", () => {
@@ -1363,7 +1392,9 @@ export function emitPrintCall(
       }
 
       case "tab":
-        lines.push(`__s += __tabTo(__s.length, ${emitExpression(segment.expr, undefined, builtinOverrides)});`);
+        lines.push(
+          `__s += __tabTo(__s.length, ${emitExpression(segment.expr, undefined, builtinOverrides)});`,
+        );
         break;
 
       case "spc":
@@ -1478,7 +1509,9 @@ export function emitFnDefs(
   fnDefs: ReadonlyMap<string, FnDef>,
   builtinOverrides: ReadonlyMap<string, EmitCall> = NO_BUILTIN_OVERRIDES,
 ): string {
-  return [...fnDefs.entries()].map(([key, def]) => emitOneFnDef(key, def, builtinOverrides)).join("\n  ");
+  return [...fnDefs.entries()]
+    .map(([key, def]) => emitOneFnDef(key, def, builtinOverrides))
+    .join("\n  ");
 }
 
 function emitOneFnDef(
@@ -1536,7 +1569,10 @@ function emitStepBody(
 
     case "Let": {
       const key = JSON.stringify(varKey(step.target.name, step.target.suffix));
-      const value = coerceForSuffix(step.target.suffix, emitExpression(step.value, undefined, builtinOverrides));
+      const value = coerceForSuffix(
+        step.target.suffix,
+        emitExpression(step.value, undefined, builtinOverrides),
+      );
       if (step.target.kind === "ArrayElement") {
         const indices = `[${step.target.indices.map((e) => emitExpression(e, undefined, builtinOverrides)).join(", ")}]`;
         const isString = step.target.suffix === "$";
@@ -1553,7 +1589,8 @@ function emitStepBody(
 
     case "For": {
       const key = JSON.stringify(varKey(step.variable, step.suffix));
-      const stepExpr = step.step === undefined ? "1" : emitExpression(step.step, undefined, builtinOverrides);
+      const stepExpr =
+        step.step === undefined ? "1" : emitExpression(step.step, undefined, builtinOverrides);
       const bodyPc = stepIndex + 1;
       const isInt = step.suffix === "%";
       return (
@@ -1635,7 +1672,10 @@ function emitStepBody(
         return `await rt.closeAllFiles(); pc = ${stepIndex + 1}; break;`;
       }
       const closes = step.fileNumbers
-        .map((fileNumber) => `await rt.closeFile(${emitExpression(fileNumber, undefined, builtinOverrides)});`)
+        .map(
+          (fileNumber) =>
+            `await rt.closeFile(${emitExpression(fileNumber, undefined, builtinOverrides)});`,
+        )
         .join(" ");
       return `${closes} pc = ${stepIndex + 1}; break;`;
     }
@@ -1785,9 +1825,11 @@ CLI integration tests exercising real `--dialect gwbasic` runs.
 - [ ] **Step 15: Manually verify end-to-end with a real program**
 
 Run:
+
 ```bash
 npx tsx src/cli/index.ts run tests/golden/programs/fizzbuzz/program.bas
 ```
+
 Expected: identical FizzBuzz output to before this task (confirms the fully-threaded
 `builtinOverrides` chain, which is empty for `classic`, produces byte-identical output).
 
@@ -1818,6 +1860,7 @@ green."
 ### Task 6: Docs and final verification
 
 **Files:**
+
 - Modify: `DIALECT.md`
 - Modify: `CLAUDE.md`
 
@@ -1840,7 +1883,7 @@ Commodore BASIC V2, ...):
    `disallowedSuffixes`/`builtinOverrides` it actually needs; leave the rest at their empty/`"full"`
    defaults, matching `CLASSIC_SPEC`/`GWBASIC_SPEC`.
 2. Add the new dialect's literal to the `Dialect` union and register its spec in `DIALECT_SPECS`.
-3. For each `extraKeywords` entry that's a genuinely new lexer keyword (not a gated *form* of an
+3. For each `extraKeywords` entry that's a genuinely new lexer keyword (not a gated _form_ of an
    existing one, like `gwbasic`'s `"PRINT #"`), add it to `src/lexer/keywords.ts`'s `KEYWORDS` set
    — the lexer always recognizes the union of every dialect's vocabulary, gating happens in the
    parser.
@@ -1891,7 +1934,6 @@ At the end of `CLAUDE.md`'s existing GW-BASIC dialect extension Progress entry (
 error paths)."), append a new paragraph:
 
 ```markdown
-
 - **Multi-dialect capability model (follow-on generalization)** — replaced the single-flag
   `requireGwBasic` check with a data-driven `DialectSpec` per dialect (`src/dialect.ts`), so a
   future dialect can express not just additive syntax but also removing a baseline construct
@@ -1916,6 +1958,7 @@ error paths)."), append a new paragraph:
 - [ ] **Step 4: Run final full verification**
 
 Run:
+
 ```bash
 npx tsc --noEmit
 npx vitest run
@@ -1924,6 +1967,7 @@ npm run format:check
 npm run build
 npm run web:build
 ```
+
 Expected: all clean/passing. `npm run web:build` in particular confirms nothing in `web/`
 regressed even though this plan never touches `web/` — it imports `@core/dialect.js`'s `Dialect`
 type, which is unchanged.
@@ -1953,6 +1997,7 @@ documented follow-on work."
 ## Self-Review Notes
 
 **Spec coverage:** every design-doc section maps to a task —
+
 - Architecture's 3-stage threading table → Tasks 2 (parser), 3 (lexer), 5 (emitter).
 - The 6 `DialectSpec` fields → Task 1.
 - The 3 error-message shapes → Task 1's `checkExtraKeywordAvailability`/

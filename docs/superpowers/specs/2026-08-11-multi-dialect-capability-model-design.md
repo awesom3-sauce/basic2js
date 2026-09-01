@@ -60,14 +60,14 @@ This spec designs a generalized capability model that can express all of the abo
 
 ### Where `dialect` threads
 
-| Stage | Today | After this change |
-|---|---|---|
-| Lexer | dialect-agnostic | **dialect-aware** — identifier normalization (case-fold + optional significant-char truncation) |
-| Parser | dialect-aware (`requireGwBasic`) | dialect-aware — generalized keyword-legality check against `DialectSpec` |
-| Semantic analysis | dialect-agnostic | unchanged |
-| Lowering | dialect-agnostic | unchanged |
-| Emitter | dialect-agnostic | **dialect-aware** — builtin JS-emission can be overridden per dialect |
-| Runtime | dialect-agnostic (host interface) | unchanged |
+| Stage             | Today                             | After this change                                                                               |
+| ----------------- | --------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Lexer             | dialect-agnostic                  | **dialect-aware** — identifier normalization (case-fold + optional significant-char truncation) |
+| Parser            | dialect-aware (`requireGwBasic`)  | dialect-aware — generalized keyword-legality check against `DialectSpec`                        |
+| Semantic analysis | dialect-agnostic                  | unchanged                                                                                       |
+| Lowering          | dialect-agnostic                  | unchanged                                                                                       |
+| Emitter           | dialect-agnostic                  | **dialect-aware** — builtin JS-emission can be overridden per dialect                           |
+| Runtime           | dialect-agnostic (host interface) | unchanged                                                                                       |
 
 This widens the "dialect only reaches the parser" premise to three stages — lexer, parser,
 emitter — each for one narrow, specific reason tied to a real divergence axis found above. Nothing
@@ -104,13 +104,13 @@ shape is an implementation detail for the plan):
 
 1. **Wrong dialect** (existing pattern, generalized from `requireGwBasic`) — a keyword exists,
    just not under the active dialect: `"OPEN is a GW-BASIC dialect extension — select the GW-BASIC
-   dialect to use it"`. Applies to `extraKeywords`.
+dialect to use it"`. Applies to `extraKeywords`.
 2. **Dropped from this dialect** (new) — a keyword `classic`/`gwbasic` support, but this dialect
    deliberately removed: `"WHILE/WEND is not available in Commodore BASIC V2 — this dialect only
-   supports GOTO-based loops"`. No dialect-switch suggestion — the fix is rewriting the program.
+supports GOTO-based loops"`. No dialect-switch suggestion — the fix is rewriting the program.
 3. **No JS equivalent** (new) — recognized BASIC syntax, no possible translation, in any dialect:
    `"PEEK is not supported by basic2js: no meaningful JavaScript equivalent for direct memory
-   access"`. No dialect-switch suggestion either.
+access"`. No dialect-switch suggestion either.
 
 All three remain `ParseError`s raised at the same point `requireGwBasic` raises today (parse time,
 once the keyword is recognized, when the gating check against the active `DialectSpec` fails).

@@ -21,7 +21,13 @@ import { LexError } from "./lex-error.js";
 import { lookupKeyword } from "./keywords.js";
 import type { Token } from "./token.js";
 import type { TypeSuffix } from "../ast/types.js";
-import { DEFAULT_DIALECT, getDialectSpec, isSuffixAllowed, normalizeIdentifierName, type Dialect } from "../dialect.js";
+import {
+  DEFAULT_DIALECT,
+  getDialectSpec,
+  isSuffixAllowed,
+  normalizeIdentifierName,
+  type Dialect,
+} from "../dialect.js";
 
 function isDigit(ch: string): boolean {
   return ch >= "0" && ch <= "9";
