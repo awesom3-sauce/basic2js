@@ -334,10 +334,14 @@ Commodore BASIC V2, ...):
    should still list its statement-position form (if any) in `unsupportedKeywords` for the clear,
    automatic rejection step 4 describes — but its expression-position form (`PEEK(n)`) needs its
    own explicit rejection built at this step's `parsePrimary`/builtin-registration layer instead,
-   since `unsupportedKeywords` is never consulted there. Building neither for an expression-position
-   construct is exactly the "silent misinterpretation" outcome this project's "clear rejection over
-   silent misinterpretation" posture forbids (Open Decisions, below) — a bare `PEEK` would otherwise
-   quietly parse as an ordinary variable reference.
+   since `unsupportedKeywords` is never consulted there. Skipping this step doesn't fail silently in
+   quite the same way step 3's `KEYWORDS` omission does: once `PEEK` is registered as a keyword (per
+   step 3), `parsePrimary` has no case for a bare `Keyword` token and falls through to its generic
+   "Expected an expression, found ..." `ParseError` — clearer than silently misparsing, but still not
+   the actionable, construct-naming rejection the GW-BASIC dialect extension section above describes
+   ("a clear `ParseError`... rather than a confusing generic syntax error or, worse, a silent
+   misinterpretation"). Building the explicit check above is what produces that clear message
+   instead of the generic one.
 6. Add CLI (`--dialect <name>`, `src/cli/index.ts`'s `parseDialectOption`) and web UI
    (`web/src/components/DialectSelector`) support for the new literal.
 7. Document every syntax/semantics delta in this file, in its own `## <Dialect> dialect extension`
