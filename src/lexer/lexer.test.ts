@@ -159,3 +159,18 @@ describe("tokenize", () => {
     expect(() => tokenize("10 PRINT @")).toThrow(LexError);
   });
 });
+
+describe("tokenize — dialect threading", () => {
+  it("still lowercases identifiers under the default dialect (regression pin)", () => {
+    const tokens = tokenize("10 LET SCORE = 1");
+    const identifier = tokens.find((t) => t.type === "Identifier");
+    expect(identifier?.text).toBe("score");
+  });
+
+  it("accepts an explicit dialect argument with no change in behavior for classic/gwbasic", () => {
+    const classicTokens = tokenize("10 LET SCORE = 1", "classic");
+    const gwbasicTokens = tokenize("10 LET SCORE = 1", "gwbasic");
+    expect(classicTokens.find((t) => t.type === "Identifier")?.text).toBe("score");
+    expect(gwbasicTokens.find((t) => t.type === "Identifier")?.text).toBe("score");
+  });
+});

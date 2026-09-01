@@ -20,6 +20,8 @@
 import { LexError } from "./lex-error.js";
 import { lookupKeyword } from "./keywords.js";
 import type { Token } from "./token.js";
+import type { TypeSuffix } from "../ast/types.js";
+import { DEFAULT_DIALECT, getDialectSpec, isSuffixAllowed, normalizeIdentifierName, type Dialect } from "../dialect.js";
 
 function isDigit(ch: string): boolean {
   return ch >= "0" && ch <= "9";
@@ -52,7 +54,8 @@ const SINGLE_CHAR_OPERATORS = "+-*/\\^=<>,;()#";
  * begin (after leading whitespace) with a line number; blank lines are
  * silently skipped. Throws `LexError` on malformed input.
  */
-export function tokenize(source: string): Token[] {
+export function tokenize(source: string, dialect: Dialect = DEFAULT_DIALECT): Token[] {
+  const spec = getDialectSpec(dialect);
   const tokens: Token[] = [];
   const physicalLines = source.split(/\r\n|\r|\n/);
 
@@ -131,8 +134,15 @@ export function tokenize(source: string): Token[] {
         }
 
         const suffix = hasSuffix ? rawLine.charAt(pos) : "";
+        if (hasSuffix && !isSuffixAllowed(suffix as TypeSuffix, spec)) {
+          throw new LexError(
+            `"${suffix}" is not a valid type suffix in the "${dialect}" dialect`,
+            sourceLine,
+            startCol,
+          );
+        }
         if (hasSuffix) pos++;
-        const identifierText = word.toLowerCase() + suffix;
+        const identifierText = normalizeIdentifierName(word, spec.identifierRule) + suffix;
         tokens.push({
           type: "Identifier",
           text: identifierText,

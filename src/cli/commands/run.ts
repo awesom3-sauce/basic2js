@@ -37,12 +37,12 @@ export async function runCommand(filePath: string, options: RunCommandOptions = 
   const dialect = options.dialect ?? DEFAULT_DIALECT;
 
   if (options.emitAst) {
-    process.stdout.write(stringifyDebugJson(parse(tokenize(source), dialect)));
+    process.stdout.write(stringifyDebugJson(parse(tokenize(source, dialect), dialect)));
     return;
   }
 
   if (options.emitSteps) {
-    process.stdout.write(stringifyDebugJson(lower(parse(tokenize(source), dialect))));
+    process.stdout.write(stringifyDebugJson(lower(parse(tokenize(source, dialect), dialect))));
     return;
   }
 
