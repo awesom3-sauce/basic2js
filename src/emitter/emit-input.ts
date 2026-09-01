@@ -20,14 +20,19 @@
 // assignment site.
 
 import type { InputStep } from "../ir/program.js";
-import { emitExpression } from "./emit-expressions.js";
+import { emitExpression, NO_BUILTIN_OVERRIDES } from "./emit-expressions.js";
+import type { EmitCall } from "./runtime-calls.js";
 import { varKey } from "./mangle.js";
 
-export function emitInputCall(step: InputStep, stepIndex: number): string {
+export function emitInputCall(
+  step: InputStep,
+  stepIndex: number,
+  builtinOverrides: ReadonlyMap<string, EmitCall> = NO_BUILTIN_OVERRIDES,
+): string {
   const rawSource =
     step.fileNumber === undefined
       ? `await rt.input(${JSON.stringify(computePromptText(step.prompt, step.appendQuestionMark))})`
-      : `await rt.readFileLine(${emitExpression(step.fileNumber)})`;
+      : `await rt.readFileLine(${emitExpression(step.fileNumber, undefined, builtinOverrides)})`;
 
   const assignments = step.targets
     .map((target, index) => {
@@ -35,7 +40,7 @@ export function emitInputCall(step: InputStep, stepIndex: number): string {
       const isString = target.suffix === "$";
       const value = `__inputCoerce(__parts[${index}] ?? "", ${JSON.stringify(target.suffix)})`;
       if (target.kind === "ArrayElement") {
-        const indices = `[${target.indices.map((e) => emitExpression(e)).join(", ")}]`;
+        const indices = `[${target.indices.map((e) => emitExpression(e, undefined, builtinOverrides)).join(", ")}]`;
         return `__arrSet(ARR, ${key}, ${indices}, ${value}, ${isString});`;
       }
       return `V[${key}] = ${value};`;

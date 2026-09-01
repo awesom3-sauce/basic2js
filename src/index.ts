@@ -12,8 +12,9 @@
 // `$`-suffixed variable actually holding a number) isn't better than
 // refusing to compile, the same way a syntax error already isn't.
 //
-// `dialect` (see src/dialect.ts) only ever needs to reach `parse()` — see
-// that module's own doc comment for why nothing downstream needs it too.
+// `dialect` (see src/dialect.ts) now reaches tokenize(), parse(), and
+// emit() — see src/dialect.ts's own doc comment for exactly what each
+// stage uses it for. analyze() and lower() stay dialect-agnostic.
 
 import { tokenize } from "./lexer/lexer.js";
 import { parse } from "./parser/parser.js";
@@ -32,11 +33,11 @@ export interface CompileResult {
 }
 
 export function compile(source: string, dialect: Dialect = DEFAULT_DIALECT): CompileResult {
-  const tokens = tokenize(source);
+  const tokens = tokenize(source, dialect);
   const ast = parse(tokens, dialect);
   const diagnostics = analyze(ast);
   if (diagnostics.length > 0) throw new SemanticError(diagnostics);
   const lowered = lower(ast);
-  const js = emit(lowered);
+  const js = emit(lowered, dialect);
   return { js, ast, lowered };
 }

@@ -23,7 +23,7 @@
 
 import { BUILTIN_FUNCTIONS } from "../parser/builtins.js";
 
-type EmitCall = (args: readonly string[]) => string;
+export type EmitCall = (args: readonly string[]) => string;
 
 export const RUNTIME_CALLS: ReadonlyMap<string, EmitCall> = new Map<string, EmitCall>([
   // String builtins.
