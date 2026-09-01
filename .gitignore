@@ -8,3 +8,6 @@ coverage/
 .env
 .env.local
 .vercel/
+
+# Worktree scratch space for isolated subagent-driven implementation work
+.worktrees/
