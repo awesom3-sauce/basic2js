@@ -13,8 +13,15 @@
 // aren't statements — see parse-expressions.ts/builtins.ts instead. Every
 // keyword the lexer still doesn't recognize as a statement raises a clear
 // "not implemented yet" ParseError rather than being silently mis-parsed.
+//
+// OPEN/CLOSE, plus PRINT/INPUT's `#fileNumber` forms, are the GW-BASIC
+// dialect extension (see src/dialect.ts) — gated by `requireDialectKeyword`
+// rather than by the lexer, since these keywords/operators are always
+// tokenized regardless of dialect (so a classic-dialect program using them
+// gets a clear dialect-mismatch error, not a confusing generic one).
 
 import type {
+  CloseStmt,
   DataStmt,
   DataValue,
   DefFnParam,
@@ -31,6 +38,7 @@ import type {
   LValue,
   NextStmt,
   OnJumpStmt,
+  OpenStmt,
   PrintSegment,
   PrintStmt,
   RandomizeStmt,
@@ -39,11 +47,14 @@ import type {
   Statement,
   WhileStmt,
 } from "../ast/statements.js";
+import type { Expression } from "../ast/expressions.js";
 import { parseExpression, parseIndexList } from "./parse-expressions.js";
 import { splitSuffix } from "./identifier.js";
 import { numberValue, stringValue } from "./token-value.js";
 import { ParseError } from "./errors.js";
+import type { Token } from "../lexer/token.js";
 import type { TokenCursor } from "./token-cursor.js";
+import { checkBaselineKeywordAvailability, checkExtraKeywordAvailability } from "../dialect.js";
 
 /**
  * True when the cursor is at a token that ends the current statement:
@@ -62,6 +73,21 @@ function isStatementEnd(cursor: TokenCursor): boolean {
   );
 }
 
+/**
+ * Throws a clear ParseError if `keyword` isn't available under the active
+ * dialect — guards every gated construct (OPEN/CLOSE, PRINT #/INPUT #'s
+ * file-number form — see src/dialect.ts). `token` supplies the error's
+ * line/col, typically the keyword/operator token that triggered the
+ * check. Thin wrapper around dialect.ts's checkExtraKeywordAvailability,
+ * which does the actual per-dialect lookup.
+ */
+function requireDialectKeyword(cursor: TokenCursor, token: Token, keyword: string): void {
+  const result = checkExtraKeywordAvailability(cursor.dialectSpec, keyword);
+  if (!result.ok) {
+    throw new ParseError(result.message, token.line, token.col);
+  }
+}
+
 export function parseStatement(cursor: TokenCursor): Statement {
   const token = cursor.current();
 
@@ -75,6 +101,10 @@ export function parseStatement(cursor: TokenCursor): Statement {
   }
 
   if (token.type === "Keyword") {
+    const availability = checkBaselineKeywordAvailability(cursor.dialectSpec, token.text);
+    if (!availability.ok) {
+      throw new ParseError(availability.message, token.line, token.col);
+    }
     switch (token.text) {
       case "PRINT":
         return parsePrintStmt(cursor);
@@ -114,6 +144,10 @@ export function parseStatement(cursor: TokenCursor): Statement {
         return parseDefFnStmt(cursor);
       case "RANDOMIZE":
         return parseRandomizeStmt(cursor);
+      case "OPEN":
+        return parseOpenStmt(cursor);
+      case "CLOSE":
+        return parseCloseStmt(cursor);
       case "END":
         cursor.advance();
         return { kind: "EndStmt" };
@@ -137,7 +171,20 @@ export function parseStatement(cursor: TokenCursor): Statement {
 }
 
 function parsePrintStmt(cursor: TokenCursor): PrintStmt {
-  cursor.expect("Keyword", "PRINT");
+  const printToken = cursor.expect("Keyword", "PRINT");
+
+  // `PRINT #n, ...` (GW-BASIC dialect extension — see OpenStmt's doc
+  // comment). The "#" is checked regardless of dialect (the lexer always
+  // tokenizes it — see lexer.ts's SINGLE_CHAR_OPERATORS note), so a
+  // classic-dialect program using this form gets a clear
+  // dialect-mismatch error here rather than a confusing generic one.
+  let fileNumber: Expression | undefined;
+  if (cursor.check("Operator", "#")) {
+    requireDialectKeyword(cursor, printToken, "PRINT #");
+    fileNumber = parseFileNumber(cursor);
+    cursor.match("Operator", ",");
+  }
+
   const segments: PrintSegment[] = [];
   // Two "value" segments may never sit adjacent without a separator
   // between them — `PRINT 1 2` is invalid syntax, not two implicitly
@@ -172,7 +219,7 @@ function parsePrintStmt(cursor: TokenCursor): PrintStmt {
     atValueBoundary = true;
   }
 
-  return { kind: "PrintStmt", segments };
+  return { kind: "PrintStmt", segments, fileNumber };
 }
 
 /**
@@ -344,7 +391,22 @@ function parseOnJumpStmt(cursor: TokenCursor): OnJumpStmt {
  * (distinct from the prompt's own `;`/`,`) isn't supported.
  */
 function parseInputStmt(cursor: TokenCursor): InputStmt {
-  cursor.expect("Keyword", "INPUT");
+  const inputToken = cursor.expect("Keyword", "INPUT");
+
+  // `INPUT #n, var[, var...]` (GW-BASIC dialect extension) — no prompt is
+  // ever allowed in this form, so it's handled as an entirely separate
+  // branch rather than folded into the prompt-parsing logic below.
+  if (cursor.check("Operator", "#")) {
+    requireDialectKeyword(cursor, inputToken, "INPUT #");
+    const fileNumber = parseFileNumber(cursor);
+    cursor.match("Operator", ",");
+    return {
+      kind: "InputStmt",
+      appendQuestionMark: false, // irrelevant for file input — no prompt is ever printed
+      targets: parseLValueList(cursor),
+      fileNumber,
+    };
+  }
 
   let prompt: string | undefined;
   let appendQuestionMark = true;
@@ -354,13 +416,17 @@ function parseInputStmt(cursor: TokenCursor): InputStmt {
     if (appendQuestionMark) cursor.expect("Operator", ";");
   }
 
+  return { kind: "InputStmt", prompt, appendQuestionMark, targets: parseLValueList(cursor) };
+}
+
+/** `var[, var...]` — shared by INPUT, INPUT #, and READ's target lists. */
+function parseLValueList(cursor: TokenCursor): LValue[] {
   const targets: LValue[] = [];
   for (;;) {
     targets.push(parseLValue(cursor));
     if (!cursor.match("Operator", ",")) break;
   }
-
-  return { kind: "InputStmt", prompt, appendQuestionMark, targets };
+  return targets;
 }
 
 /**
@@ -422,12 +488,7 @@ function parseDataValue(cursor: TokenCursor): DataValue {
 
 function parseReadStmt(cursor: TokenCursor): ReadStmt {
   cursor.expect("Keyword", "READ");
-  const targets: LValue[] = [];
-  for (;;) {
-    targets.push(parseLValue(cursor));
-    if (!cursor.match("Operator", ",")) break;
-  }
-  return { kind: "ReadStmt", targets };
+  return { kind: "ReadStmt", targets: parseLValueList(cursor) };
 }
 
 function parseRestoreStmt(cursor: TokenCursor): RestoreStmt {
@@ -509,4 +570,61 @@ function parseRandomizeStmt(cursor: TokenCursor): RandomizeStmt {
   cursor.expect("Keyword", "RANDOMIZE");
   const seed = parseExpression(cursor);
   return { kind: "RandomizeStmt", seed };
+}
+
+/**
+ * `OPEN path FOR mode AS #fileNumber` (GW-BASIC dialect extension — see
+ * src/dialect.ts and OpenStmt's doc comment in ast/statements.ts).
+ */
+function parseOpenStmt(cursor: TokenCursor): OpenStmt {
+  const openToken = cursor.expect("Keyword", "OPEN");
+  requireDialectKeyword(cursor, openToken, "OPEN");
+  const path = parseExpression(cursor);
+  cursor.expect("Keyword", "FOR");
+  const mode = parseFileMode(cursor);
+  cursor.expect("Keyword", "AS");
+  const fileNumber = parseFileNumber(cursor);
+  return { kind: "OpenStmt", path, mode, fileNumber };
+}
+
+function parseFileMode(cursor: TokenCursor): "input" | "output" | "append" {
+  if (cursor.match("Keyword", "OUTPUT")) return "output";
+  if (cursor.match("Keyword", "APPEND")) return "append";
+  if (cursor.match("Keyword", "INPUT")) return "input";
+  const token = cursor.current();
+  throw new ParseError(
+    `Expected INPUT, OUTPUT, or APPEND after "OPEN ... FOR", found "${token.text}"`,
+    token.line,
+    token.col,
+  );
+}
+
+/**
+ * `CLOSE [#n [, #n...]]` (GW-BASIC dialect extension). An empty list closes
+ * every currently-open file, matching real GW-BASIC.
+ */
+function parseCloseStmt(cursor: TokenCursor): CloseStmt {
+  const closeToken = cursor.expect("Keyword", "CLOSE");
+  requireDialectKeyword(cursor, closeToken, "CLOSE");
+  const fileNumbers: Expression[] = [];
+  if (!isStatementEnd(cursor)) {
+    for (;;) {
+      fileNumbers.push(parseFileNumber(cursor));
+      if (!cursor.match("Operator", ",")) break;
+    }
+  }
+  return { kind: "CloseStmt", fileNumbers };
+}
+
+/**
+ * Consumes an optional `#` then a file-number expression — shared by
+ * `OPEN`'s `AS #n`, `CLOSE`'s `#n` list, and `PRINT #`/`INPUT #`'s leading
+ * file number. The `#` is optional everywhere it appears, matching real
+ * GW-BASIC (`AS #1` and `AS 1` are both legal) — except `PRINT`/`INPUT`,
+ * where it's required, since that's the only signal distinguishing the
+ * file-directed form from the ordinary console form at that position.
+ */
+function parseFileNumber(cursor: TokenCursor): Expression {
+  cursor.match("Operator", "#");
+  return parseExpression(cursor);
 }

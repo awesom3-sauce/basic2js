@@ -19,16 +19,20 @@
 
 import type { BasicValue } from "../ast/types.js";
 import type { LineIndex, LoweredProgram } from "../ir/program.js";
+import { DEFAULT_DIALECT, getDialectSpec, type Dialect } from "../dialect.js";
 import { emitFnDefs } from "./emit-fn-defs.js";
 import { emitStep } from "./emit-statements.js";
 import { PRELUDE } from "./prelude.js";
 
-export function emit(lowered: LoweredProgram): string {
+export function emit(lowered: LoweredProgram, dialect: Dialect = DEFAULT_DIALECT): string {
+  const builtinOverrides = getDialectSpec(dialect).builtinOverrides;
   const linestart = emitLineTable(lowered.lineToStep);
   const dataLineStarts = emitLineTable(lowered.dataLineStarts);
   const data = emitDataArray(lowered.data);
-  const fnDefs = emitFnDefs(lowered.fnDefs);
-  const cases = lowered.steps.map((step, index) => emitStep(step, index)).join("\n      ");
+  const fnDefs = emitFnDefs(lowered.fnDefs, builtinOverrides);
+  const cases = lowered.steps
+    .map((step, index) => emitStep(step, index, builtinOverrides))
+    .join("\n      ");
 
   return `${PRELUDE}
 

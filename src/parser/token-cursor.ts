@@ -7,15 +7,24 @@
 // `(cursor: TokenCursor) => Node`.
 
 import type { Token, TokenType } from "../lexer/token.js";
+import type { Dialect, DialectSpec } from "../dialect.js";
+import { DEFAULT_DIALECT, getDialectSpec } from "../dialect.js";
 import { ParseError } from "./errors.js";
 
 export class TokenCursor {
   private pos = 0;
+  /** The active dialect's full capability spec — see src/dialect.ts. Resolved once here so every dialect-gated parse function reads it straight off the cursor. */
+  readonly dialectSpec: DialectSpec;
 
-  constructor(private readonly tokens: readonly Token[]) {
+  constructor(
+    private readonly tokens: readonly Token[],
+    /** Which BASIC dialect is being parsed — see src/dialect.ts. Kept only as the constructor input `dialectSpec` is resolved from; dialect-gated parse functions read `dialectSpec` off the cursor instead of this raw literal. */
+    readonly dialect: Dialect = DEFAULT_DIALECT,
+  ) {
     if (tokens.length === 0) {
       throw new Error("TokenCursor: token stream must at least contain an EOF token");
     }
+    this.dialectSpec = getDialectSpec(dialect);
   }
 
   /** The token `offset` positions ahead of the cursor (0 = current). Clamps at EOF. */

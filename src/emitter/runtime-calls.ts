@@ -23,7 +23,7 @@
 
 import { BUILTIN_FUNCTIONS } from "../parser/builtins.js";
 
-type EmitCall = (args: readonly string[]) => string;
+export type EmitCall = (args: readonly string[]) => string;
 
 export const RUNTIME_CALLS: ReadonlyMap<string, EmitCall> = new Map<string, EmitCall>([
   // String builtins.
@@ -51,6 +51,21 @@ export const RUNTIME_CALLS: ReadonlyMap<string, EmitCall> = new Map<string, Emit
   ["sin", (a) => `Math.sin(${a[0]})`],
   ["cos", (a) => `Math.cos(${a[0]})`],
   ["tan", (a) => `Math.tan(${a[0]})`],
+
+  // GW-BASIC dialect extension (file I/O — see src/dialect.ts). Like RND,
+  // this reaches outside pure JS into the host: `isFileEof` is
+  // synchronous (unlike the other file I/O runtime methods), so it can be
+  // called directly from expression position with no `await` — see
+  // runtime/interface.ts's doc comment on why. The `? -1 : 0` wrapping is
+  // NOT optional here — real bug found via direct testing, not caught by
+  // reasoning about it in advance: `isFileEof` returns a genuine JS
+  // boolean, and BASIC's NOT/AND/OR compile to JS's bitwise ~/&/|, which
+  // only round-trip correctly against BASIC's own -1/0 truthiness
+  // convention. `~true` is `-2`, not `-1` — so an unwrapped `NOT EOF(1)`
+  // stayed truthy (`-2`) even once EOF *was* true, since only exactly `0`
+  // is falsy in JS, and a `WHILE NOT EOF(1)` loop using it would always
+  // attempt one read too many before ever exiting. See DIALECT.md.
+  ["eof", (a) => `(rt.isFileEof(${a[0]}) ? -1 : 0)`],
 ]);
 
 // Dev-time self-check, exercised by runtime-calls.test.ts: every
@@ -61,4 +76,25 @@ export function builtinKeysMatch(): boolean {
   if (builtinKeys.size !== runtimeKeys.size) return false;
   for (const key of builtinKeys) if (!runtimeKeys.has(key)) return false;
   return true;
+}
+
+/**
+ * Resolves `calleeKey`'s JS-emission function, checking `overrides`
+ * (a dialect's DialectSpec.builtinOverrides — see src/dialect.ts) before
+ * falling back to the shared RUNTIME_CALLS table. Takes just the
+ * overrides map, not a full DialectSpec, so this stays testable and
+ * usable in isolation from the rest of the dialect model — the same
+ * "thread the narrowest useful value" choice emit-expressions.ts's
+ * `locals` parameter already makes.
+ *
+ * The parameter type is written out structurally (matching EmitCall's own
+ * shape) rather than importing DialectSpec here — runtime-calls.ts is an
+ * emitter-layer module; src/dialect.ts is lower-level and imported BY the
+ * emitter, never the other way around.
+ */
+export function resolveRuntimeCall(
+  calleeKey: string,
+  overrides: ReadonlyMap<string, EmitCall>,
+): EmitCall | undefined {
+  return overrides.get(calleeKey) ?? RUNTIME_CALLS.get(calleeKey);
 }

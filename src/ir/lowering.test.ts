@@ -3,9 +3,10 @@ import { tokenize } from "../lexer/lexer.js";
 import { parse } from "../parser/parser.js";
 import { lower } from "./lowering.js";
 import type { LoweredProgram } from "./program.js";
+import type { Dialect } from "../dialect.js";
 
-function lowerSource(source: string): LoweredProgram {
-  return lower(parse(tokenize(source)));
+function lowerSource(source: string, dialect?: Dialect): LoweredProgram {
+  return lower(parse(tokenize(source, dialect), dialect));
 }
 
 describe("lower — statement kinds", () => {
@@ -477,5 +478,67 @@ describe("lower — RANDOMIZE", () => {
     expect(steps).toEqual([
       { kind: "Randomize", line: 10, seed: { kind: "NumberLiteral", value: 42 } },
     ]);
+  });
+});
+
+describe("lower — GW-BASIC dialect extension: OPEN/CLOSE/PRINT #/INPUT #", () => {
+  it("lowers OPEN 1:1 into an Open step", () => {
+    const { steps } = lowerSource('10 OPEN "A.TXT" FOR OUTPUT AS #1', "gwbasic");
+    expect(steps).toEqual([
+      {
+        kind: "Open",
+        line: 10,
+        path: { kind: "StringLiteral", value: "A.TXT" },
+        mode: "output",
+        fileNumber: { kind: "NumberLiteral", value: 1 },
+      },
+    ]);
+  });
+
+  it("lowers CLOSE 1:1 into a Close step, preserving an empty (close-all) fileNumbers list", () => {
+    expect(lowerSource("10 CLOSE #1, #2", "gwbasic").steps).toEqual([
+      {
+        kind: "Close",
+        line: 10,
+        fileNumbers: [
+          { kind: "NumberLiteral", value: 1 },
+          { kind: "NumberLiteral", value: 2 },
+        ],
+      },
+    ]);
+    expect(lowerSource("10 CLOSE", "gwbasic").steps).toEqual([
+      { kind: "Close", line: 10, fileNumbers: [] },
+    ]);
+  });
+
+  it("threads PRINT #'s fileNumber through into the Print step", () => {
+    const { steps } = lowerSource('10 PRINT #1, "HI"', "gwbasic");
+    expect(steps).toEqual([
+      {
+        kind: "Print",
+        line: 10,
+        fileNumber: { kind: "NumberLiteral", value: 1 },
+        segments: [{ kind: "value", expr: { kind: "StringLiteral", value: "HI" } }],
+      },
+    ]);
+  });
+
+  it("threads INPUT #'s fileNumber through into the Input step", () => {
+    const { steps } = lowerSource("10 INPUT #1, A$", "gwbasic");
+    expect(steps).toEqual([
+      {
+        kind: "Input",
+        line: 10,
+        prompt: undefined,
+        appendQuestionMark: false,
+        fileNumber: { kind: "NumberLiteral", value: 1 },
+        targets: [{ kind: "Variable", name: "a", suffix: "$" }],
+      },
+    ]);
+  });
+
+  it("an ordinary console PRINT still lowers with no fileNumber at all", () => {
+    const { steps } = lowerSource('10 PRINT "HI"', "gwbasic");
+    expect((steps[0] as { fileNumber?: unknown }).fileNumber).toBeUndefined();
   });
 });

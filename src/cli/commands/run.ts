@@ -13,6 +13,9 @@
 // the compiler core's individual stages — allowed for the CLI (unlike
 // web/src/engine, which is contractually restricted to compile() +
 // BrowserRuntime only — see CLAUDE.md's UI replaceability contract).
+//
+// `--dialect` (see src/dialect.ts) selects which BASIC dialect the source
+// is parsed as; defaults to "classic" like compile() itself.
 
 import { readFile } from "node:fs/promises";
 import { compile } from "../../index.js";
@@ -21,26 +24,29 @@ import { parse } from "../../parser/parser.js";
 import { lower } from "../../ir/lowering.js";
 import { importModuleFromSource } from "../../util/load-js-module.js";
 import { NodeRuntime } from "../../runtime/node/node-runtime.js";
+import { DEFAULT_DIALECT, type Dialect } from "../../dialect.js";
 
 export interface RunCommandOptions {
   readonly emitAst?: boolean;
   readonly emitSteps?: boolean;
+  readonly dialect?: Dialect;
 }
 
 export async function runCommand(filePath: string, options: RunCommandOptions = {}): Promise<void> {
   const source = await readFile(filePath, "utf-8");
+  const dialect = options.dialect ?? DEFAULT_DIALECT;
 
   if (options.emitAst) {
-    process.stdout.write(stringifyDebugJson(parse(tokenize(source))));
+    process.stdout.write(stringifyDebugJson(parse(tokenize(source, dialect), dialect)));
     return;
   }
 
   if (options.emitSteps) {
-    process.stdout.write(stringifyDebugJson(lower(parse(tokenize(source)))));
+    process.stdout.write(stringifyDebugJson(lower(parse(tokenize(source, dialect), dialect))));
     return;
   }
 
-  const { js } = compile(source);
+  const { js } = compile(source, dialect);
   const mod = await importModuleFromSource(js);
   const run = mod.run as (rt: NodeRuntime) => Promise<void>;
 

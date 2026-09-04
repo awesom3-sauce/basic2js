@@ -273,6 +273,7 @@ function __toBasicError(e, line) {
   else if (message.indexOf("RETURN WITHOUT GOSUB") === 0) code = "RETURN_WITHOUT_GOSUB";
   else if (message.indexOf("NEXT WITHOUT FOR") === 0) code = "NEXT_WITHOUT_FOR";
   else if (message.indexOf("ILLEGAL FUNCTION CALL") === 0) code = "ILLEGAL_FUNCTION_CALL";
+  else if (message.indexOf("FILE ERROR") === 0) code = "FILE_ERROR"; // GW-BASIC dialect (see src/dialect.ts) — thrown by rt.openFile/writeFile/readFileLine/isFileEof, not a prelude helper
   var basicError = new Error(message);
   basicError.name = "BasicRuntimeError";
   basicError.code = code;

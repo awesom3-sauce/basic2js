@@ -3,11 +3,11 @@
 // CodeEditor. Presentation + local wiring only.
 
 import type { ChangeEvent } from "react";
-import { EXAMPLES } from "../../examples";
+import { EXAMPLES, type Example } from "../../examples";
 import styles from "./ExamplesMenu.module.css";
 
 export interface ExamplesMenuProps {
-  readonly onSelect: (source: string) => void;
+  readonly onSelect: (example: Example) => void;
   readonly disabled?: boolean;
 }
 
@@ -16,7 +16,7 @@ export default function ExamplesMenu({ onSelect, disabled }: ExamplesMenuProps) 
     const id = event.target.value;
     if (id === "") return;
     const example = EXAMPLES.find((e) => e.id === id);
-    if (example !== undefined) onSelect(example.source);
+    if (example !== undefined) onSelect(example);
     event.target.value = ""; // reset to the placeholder so the same example can be re-selected
   }
 

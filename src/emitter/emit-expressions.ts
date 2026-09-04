@@ -39,15 +39,24 @@
 // parameter here again would reintroduce the same class of bug at every
 // bare-reference call site — grep for `.map(emitExpression)` (and
 // `.map(emitJumpTarget)`, same risk) before changing this signature again.
+// The same caution now applies to `builtinOverrides` — check every
+// `.map(emitExpression)`/direct call site again before changing this
+// signature a third time.
 
 import type { BinOp, Expression, UnaryOp } from "../ast/expressions.js";
 import { mangleParamName, varKey } from "./mangle.js";
-import { RUNTIME_CALLS } from "./runtime-calls.js";
+import { resolveRuntimeCall, type EmitCall } from "./runtime-calls.js";
 import { assertNever } from "../util/assert-never.js";
 
 const NO_LOCALS: ReadonlySet<string> = new Set();
+/** Shared empty-map sentinel — every emit-*.ts file that threads `builtinOverrides` through without one of its own defaults to this, so there's exactly one "no overrides" instance, not one per file. */
+export const NO_BUILTIN_OVERRIDES: ReadonlyMap<string, EmitCall> = new Map();
 
-export function emitExpression(expr: Expression, locals: ReadonlySet<string> = NO_LOCALS): string {
+export function emitExpression(
+  expr: Expression,
+  locals: ReadonlySet<string> = NO_LOCALS,
+  builtinOverrides: ReadonlyMap<string, EmitCall> = NO_BUILTIN_OVERRIDES,
+): string {
   switch (expr.kind) {
     case "NumberLiteral":
       return String(expr.value);
@@ -61,27 +70,27 @@ export function emitExpression(expr: Expression, locals: ReadonlySet<string> = N
     }
 
     case "UnaryExpr":
-      return emitUnaryExpr(expr.op, expr.operand, locals);
+      return emitUnaryExpr(expr.op, expr.operand, locals, builtinOverrides);
 
     case "BinaryExpr":
-      return emitBinaryExpr(expr.op, expr.left, expr.right, locals);
+      return emitBinaryExpr(expr.op, expr.left, expr.right, locals, builtinOverrides);
 
     case "ArrayRef": {
       const key = JSON.stringify(varKey(expr.name, expr.suffix));
-      const indices = `[${expr.indices.map((i) => emitExpression(i, locals)).join(", ")}]`;
+      const indices = `[${expr.indices.map((i) => emitExpression(i, locals, builtinOverrides)).join(", ")}]`;
       const isString = expr.suffix === "$";
       return `__arrGet(ARR, ${key}, ${indices}, ${isString})`;
     }
 
     case "CallExpr": {
-      const args = expr.args.map((a) => emitExpression(a, locals));
+      const args = expr.args.map((a) => emitExpression(a, locals, builtinOverrides));
       // The parser only ever produces a bare (non-`FN`-prefixed) CallExpr
       // for a name matching builtins.ts's registry, and only ever produces
       // an `FN`-prefixed one for an arbitrary DEF FN name — so checking
       // the builtin registry here unambiguously recovers which case this
       // is, with no extra discriminant needed on the node itself (see
       // CallExpr's doc comment in ast/expressions.ts).
-      const emitBuiltin = RUNTIME_CALLS.get(expr.callee);
+      const emitBuiltin = resolveRuntimeCall(expr.callee, builtinOverrides);
       if (emitBuiltin !== undefined) return emitBuiltin(args);
       return `FN[${JSON.stringify(expr.callee)}](${args.join(", ")})`;
     }
@@ -91,10 +100,15 @@ export function emitExpression(expr: Expression, locals: ReadonlySet<string> = N
   }
 }
 
-function emitUnaryExpr(op: UnaryOp, operand: Expression, locals: ReadonlySet<string>): string {
+function emitUnaryExpr(
+  op: UnaryOp,
+  operand: Expression,
+  locals: ReadonlySet<string>,
+  builtinOverrides: ReadonlyMap<string, EmitCall>,
+): string {
   switch (op) {
     case "-":
-      return `(-${emitExpression(operand, locals)})`;
+      return `(-${emitExpression(operand, locals, builtinOverrides)})`;
 
     case "NOT":
       // BASIC's NOT is a bitwise complement, not JS's logical "!" — see
@@ -102,7 +116,7 @@ function emitUnaryExpr(op: UnaryOp, operand: Expression, locals: ReadonlySet<str
       // common case of operands that are themselves comparison/logical
       // results (0 = false, -1 = true), ~0 = -1 and ~(-1) = 0, which is
       // exactly logical negation.
-      return `(~${emitExpression(operand, locals)})`;
+      return `(~${emitExpression(operand, locals, builtinOverrides)})`;
 
     default:
       return assertNever(op, "emitUnaryExpr");
@@ -114,9 +128,10 @@ function emitBinaryExpr(
   left: Expression,
   right: Expression,
   locals: ReadonlySet<string>,
+  builtinOverrides: ReadonlyMap<string, EmitCall>,
 ): string {
-  const l = emitExpression(left, locals);
-  const r = emitExpression(right, locals);
+  const l = emitExpression(left, locals, builtinOverrides);
+  const r = emitExpression(right, locals, builtinOverrides);
 
   switch (op) {
     case "+":

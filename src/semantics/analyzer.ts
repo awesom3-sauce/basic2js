@@ -116,6 +116,17 @@ function checkStatement(
       checkNumeric(statement.seed, lineNumber, "a RANDOMIZE seed", diagnostics);
       break;
 
+    case "OpenStmt":
+      checkString(statement.path, lineNumber, "an OPEN path", diagnostics);
+      checkNumeric(statement.fileNumber, lineNumber, "an OPEN file number", diagnostics);
+      break;
+
+    case "CloseStmt":
+      for (const fileNumber of statement.fileNumbers) {
+        checkNumeric(fileNumber, lineNumber, "a CLOSE file number", diagnostics);
+      }
+      break;
+
     case "GotoStmt":
       checkLineTarget(statement.target, lineNumber, knownLines, diagnostics);
       break;
@@ -197,6 +208,17 @@ function checkNumeric(
 ): void {
   if (inferExpressionType(expr) !== "number") {
     diagnostics.push(typeMismatch(lineNumber, `${description} must be numeric, not a string`));
+  }
+}
+
+function checkString(
+  expr: Expression,
+  lineNumber: number,
+  description: string,
+  diagnostics: Diagnostic[],
+): void {
+  if (inferExpressionType(expr) !== "string") {
+    diagnostics.push(typeMismatch(lineNumber, `${description} must be a string, not numeric`));
   }
 }
 

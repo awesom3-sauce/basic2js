@@ -31,6 +31,8 @@ export type Step =
   | WhileStep
   | WendStep
   | RandomizeStep
+  | OpenStep
+  | CloseStep
   | NoOpStep
   | HaltStep;
 
@@ -42,6 +44,8 @@ interface StepBase {
 export interface PrintStep extends StepBase {
   readonly kind: "Print";
   readonly segments: readonly PrintSegment[];
+  /** `PRINT #n, ...` (GW-BASIC dialect extension) — `undefined` means the console. */
+  readonly fileNumber?: Expression;
 }
 
 export interface LetStep extends StepBase {
@@ -175,6 +179,8 @@ export interface InputStep extends StepBase {
   readonly prompt?: string;
   readonly appendQuestionMark: boolean;
   readonly targets: readonly LValue[];
+  /** `INPUT #n, ...` (GW-BASIC dialect extension) — `undefined` means interactive console input. */
+  readonly fileNumber?: Expression;
 }
 
 /**
@@ -248,6 +254,27 @@ export interface WendStep extends StepBase {
 export interface RandomizeStep extends StepBase {
   readonly kind: "Randomize";
   readonly seed: Expression;
+}
+
+/**
+ * `OPEN path FOR mode AS #fileNumber` (GW-BASIC dialect extension — see
+ * src/dialect.ts). Emits an `await rt.openFile(...)` call — see
+ * runtime/interface.ts.
+ */
+export interface OpenStep extends StepBase {
+  readonly kind: "Open";
+  readonly path: Expression;
+  readonly mode: "input" | "output" | "append";
+  readonly fileNumber: Expression;
+}
+
+/**
+ * `CLOSE [#n [, #n...]]` (GW-BASIC dialect extension). An empty
+ * `fileNumbers` list closes every open file.
+ */
+export interface CloseStep extends StepBase {
+  readonly kind: "Close";
+  readonly fileNumbers: readonly Expression[];
 }
 
 /** REM/`'` comments: no runtime effect, just falls through to the next step. */

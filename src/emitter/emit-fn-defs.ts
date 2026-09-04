@@ -15,17 +15,27 @@
 // free rather than any bespoke mechanism.
 
 import type { FnDef } from "../ir/program.js";
-import { emitExpression } from "./emit-expressions.js";
+import { emitExpression, NO_BUILTIN_OVERRIDES } from "./emit-expressions.js";
+import type { EmitCall } from "./runtime-calls.js";
 import { mangleParamName, varKey } from "./mangle.js";
 
-export function emitFnDefs(fnDefs: ReadonlyMap<string, FnDef>): string {
-  return [...fnDefs.entries()].map(([key, def]) => emitOneFnDef(key, def)).join("\n  ");
+export function emitFnDefs(
+  fnDefs: ReadonlyMap<string, FnDef>,
+  builtinOverrides: ReadonlyMap<string, EmitCall> = NO_BUILTIN_OVERRIDES,
+): string {
+  return [...fnDefs.entries()]
+    .map(([key, def]) => emitOneFnDef(key, def, builtinOverrides))
+    .join("\n  ");
 }
 
-function emitOneFnDef(key: string, def: FnDef): string {
+function emitOneFnDef(
+  key: string,
+  def: FnDef,
+  builtinOverrides: ReadonlyMap<string, EmitCall>,
+): string {
   const paramKeys = def.params.map((p) => varKey(p.name, p.suffix));
   const jsParams = paramKeys.map(mangleParamName).join(", ");
   const locals = new Set(paramKeys);
-  const body = emitExpression(def.body, locals);
+  const body = emitExpression(def.body, locals, builtinOverrides);
   return `FN[${JSON.stringify(key)}] = function (${jsParams}) { return ${body}; };`;
 }

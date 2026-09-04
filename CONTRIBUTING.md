@@ -18,15 +18,21 @@ isn't passing its golden tests yet).
    the feature(s) you're adding coverage for.
 2. If the program uses `INPUT`, add `tests/golden/programs/<name>/input.txt` — one scripted input
    value per line, consumed in order by `tests/helpers/test-runtime.ts`'s `TestRuntime`.
-3. Run the program's expected output through the reference behavior you're implementing against
+3. If the program needs the GW-BASIC dialect extension (`OPEN`/`CLOSE`/`PRINT #`/`INPUT #`/`EOF()`
+   — see DIALECT.md), add `tests/golden/programs/<name>/dialect.txt` containing just `gwbasic` —
+   `golden.test.ts` compiles the program against that dialect instead of the default `"classic"`.
+4. Run the program's expected output through the reference behavior you're implementing against
    (hand-computed, or cross-checked against a real BASIC interpreter if available) and save it as
    `tests/golden/programs/<name>/expected.txt`.
-4. `tests/golden/golden.test.ts` auto-discovers every subdirectory under `programs/` — no
+5. `tests/golden/golden.test.ts` auto-discovers every subdirectory under `programs/` — no
    per-fixture test registration needed.
-5. If the program uses `RND`, it **must** call `RANDOMIZE <fixed-seed>` — see DIALECT.md's locked
+6. If the program uses `RND`, it **must** call `RANDOMIZE <fixed-seed>` — see DIALECT.md's locked
    RNG-determinism default.
-6. Consider mirroring the fixture into `web/src/examples/` so it's also selectable from the web
-   UI's `ExamplesMenu` (keep the `.bas` source text identical between the two locations).
+7. Consider mirroring the fixture into `web/src/examples/` so it's also selectable from the web
+   UI's `ExamplesMenu` (keep the `.bas` source text identical between the two locations) — see
+   `tests/web-examples-sync.test.ts`, which fails the build if the two ever drift apart, and note
+   that `web/src/examples/index.ts`'s `Example` type has an optional `dialect` field so selecting a
+   GW-BASIC-only example also flips the toolbar's dialect dropdown automatically.
 
 ## Running a single test file
 

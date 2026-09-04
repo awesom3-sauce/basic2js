@@ -23,6 +23,15 @@
 // only names/arity) — its unit test asserts the two tables' key sets are
 // identical, so a new builtin can't be added to one and forgotten in the
 // other.
+//
+// Dialect-restricted builtins (currently just gwbasic's "eof") are marked
+// via each dialect's own DialectSpec.extraBuiltins (see src/dialect.ts) --
+// parse-expressions.ts's parsePrimary checks isBuiltinAvailable alongside
+// lookupBuiltin. In a dialect that doesn't add a given restricted
+// builtin, that name is treated exactly as if it weren't in
+// BUILTIN_FUNCTIONS at all (an ordinary variable/array, never reserved)
+// -- unlike every universal builtin, which is reserved in call position
+// under every dialect.
 
 export interface BuiltinArity {
   readonly min: number;
@@ -55,6 +64,11 @@ export const BUILTIN_FUNCTIONS: ReadonlyMap<string, BuiltinArity> = new Map([
   ["sin", { min: 1, max: 1 }],
   ["cos", { min: 1, max: 1 }],
   ["tan", { min: 1, max: 1 }],
+
+  // GW-BASIC dialect extension (file I/O — see src/dialect.ts and
+  // DialectSpec.extraBuiltins). `EOF(n)` tests whether file #n has been
+  // read to its end.
+  ["eof", { min: 1, max: 1 }],
 ]);
 
 export function lookupBuiltin(calleeKey: string): BuiltinArity | undefined {

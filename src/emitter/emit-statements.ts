@@ -13,21 +13,22 @@
 // (build order step 6), For/Next (build order step 7),
 // Gosub/Return/OnJump (build order step 8), Input (build order step 9),
 // Dim (build order step 10), Read/Restore (build order step 11),
-// While/Wend (build order step 12), and Randomize (build order step 14) —
-// exactly the Step kinds lowering currently produces (see
-// src/ir/program.ts). Input is the only Step kind whose case body contains
-// an `await` beyond the print calls emitted here (`rt.print` is always
-// awaited too, for host symmetry — see src/runtime/interface.ts);
+// While/Wend (build order step 12), Randomize (build order step 14), and
+// Open/Close (GW-BASIC dialect extension — see src/dialect.ts) — exactly
+// the Step kinds lowering currently produces (see src/ir/program.ts).
+// Input/Open/Close all `await` a real host (`rt`) call (`rt.print` is
+// always awaited too, for host symmetry — see src/runtime/interface.ts);
 // Randomize calls `rt.seedRandom` synchronously.
 
 import type { Step } from "../ir/program.js";
 import { coerceForSuffix } from "./coerce.js";
-import { emitExpression } from "./emit-expressions.js";
+import { emitExpression, NO_BUILTIN_OVERRIDES } from "./emit-expressions.js";
 import { emitPrintCall } from "./emit-print.js";
 import { emitInputCall } from "./emit-input.js";
 import { emitReadCall } from "./emit-read.js";
 import { emitJumpTarget } from "./emit-jump-target.js";
 import { varKey } from "./mangle.js";
+import type { EmitCall } from "./runtime-calls.js";
 import { assertNever } from "../util/assert-never.js";
 
 /**
@@ -35,23 +36,34 @@ import { assertNever } from "../util/assert-never.js";
  * `stepIndex` in the flat Step[] — so "fall through to the next step" is
  * always `pc = stepIndex + 1`.
  */
-export function emitStep(step: Step, stepIndex: number): string {
-  return `case ${stepIndex}: { __line = ${step.line}; ${emitStepBody(step, stepIndex)} }`;
+export function emitStep(
+  step: Step,
+  stepIndex: number,
+  builtinOverrides: ReadonlyMap<string, EmitCall> = NO_BUILTIN_OVERRIDES,
+): string {
+  return `case ${stepIndex}: { __line = ${step.line}; ${emitStepBody(step, stepIndex, builtinOverrides)} }`;
 }
 
-function emitStepBody(step: Step, stepIndex: number): string {
+function emitStepBody(
+  step: Step,
+  stepIndex: number,
+  builtinOverrides: ReadonlyMap<string, EmitCall>,
+): string {
   switch (step.kind) {
     case "Print":
-      return `${emitPrintCall(step.segments)} pc = ${stepIndex + 1}; break;`;
+      return `${emitPrintCall(step.segments, step.fileNumber, builtinOverrides)} pc = ${stepIndex + 1}; break;`;
 
     case "Let": {
       const key = JSON.stringify(varKey(step.target.name, step.target.suffix));
       // Type-suffix coercion (build order step 15) happens here, at the
       // assignment site, not on `step.value` itself — matching DIALECT.md's
       // "enforced at assignment time, not on every intermediate expression".
-      const value = coerceForSuffix(step.target.suffix, emitExpression(step.value));
+      const value = coerceForSuffix(
+        step.target.suffix,
+        emitExpression(step.value, undefined, builtinOverrides),
+      );
       if (step.target.kind === "ArrayElement") {
-        const indices = `[${step.target.indices.map((e) => emitExpression(e)).join(", ")}]`;
+        const indices = `[${step.target.indices.map((e) => emitExpression(e, undefined, builtinOverrides)).join(", ")}]`;
         const isString = step.target.suffix === "$";
         return `__arrSet(ARR, ${key}, ${indices}, ${value}, ${isString}); pc = ${stepIndex + 1}; break;`;
       }
@@ -62,11 +74,12 @@ function emitStepBody(step: Step, stepIndex: number): string {
       return `pc = ${emitJumpTarget(step.target)}; break;`;
 
     case "If":
-      return `pc = (${emitExpression(step.condition)}) ? (${emitJumpTarget(step.thenTarget)}) : (${emitJumpTarget(step.elseTarget)}); break;`;
+      return `pc = (${emitExpression(step.condition, undefined, builtinOverrides)}) ? (${emitJumpTarget(step.thenTarget)}) : (${emitJumpTarget(step.elseTarget)}); break;`;
 
     case "For": {
       const key = JSON.stringify(varKey(step.variable, step.suffix));
-      const stepExpr = step.step === undefined ? "1" : emitExpression(step.step);
+      const stepExpr =
+        step.step === undefined ? "1" : emitExpression(step.step, undefined, builtinOverrides);
       const bodyPc = stepIndex + 1;
       const isInt = step.suffix === "%";
       // start/end/step are all evaluated first, using whatever value the
@@ -81,8 +94,8 @@ function emitStepBody(step: Step, stepIndex: number): string {
       // string-suffixed loop variable is rejected at compile time instead
       // (see semantics/analyzer.ts), so only "%" needs handling here.
       return (
-        `const __start = ${emitExpression(step.start)}; ` +
-        `const __limit = ${emitExpression(step.end)}; ` +
+        `const __start = ${emitExpression(step.start, undefined, builtinOverrides)}; ` +
+        `const __limit = ${emitExpression(step.end, undefined, builtinOverrides)}; ` +
         `const __step = ${stepExpr}; ` +
         `V[${key}] = ${coerceForSuffix(step.suffix, "__start")}; ` +
         `forStack.push({ key: ${key}, limit: __limit, step: __step, bodyPc: ${bodyPc}, isInt: ${isInt} }); ` +
@@ -104,7 +117,7 @@ function emitStepBody(step: Step, stepIndex: number): string {
     case "OnJump": {
       const targets = `[${step.targets.map(emitJumpTarget).join(", ")}]`;
       const fallthroughPc = stepIndex + 1;
-      const selectTarget = `__onJumpTarget(${emitExpression(step.selector)}, ${targets})`;
+      const selectTarget = `__onJumpTarget(${emitExpression(step.selector, undefined, builtinOverrides)}, ${targets})`;
       if (step.mode === "goto") {
         return `pc = ${selectTarget} ?? ${fallthroughPc}; break;`;
       }
@@ -120,13 +133,13 @@ function emitStepBody(step: Step, stepIndex: number): string {
     }
 
     case "Input":
-      return emitInputCall(step, stepIndex);
+      return emitInputCall(step, stepIndex, builtinOverrides);
 
     case "Dim": {
       const allocations = step.declarations
         .map((decl) => {
           const key = JSON.stringify(varKey(decl.name, decl.suffix));
-          const dims = `[${decl.dimensions.map((e) => emitExpression(e)).join(", ")}]`;
+          const dims = `[${decl.dimensions.map((e) => emitExpression(e, undefined, builtinOverrides)).join(", ")}]`;
           const isString = decl.suffix === "$";
           return `ARR[${key}] = __arrAlloc(${dims}, ${isString});`;
         })
@@ -135,7 +148,7 @@ function emitStepBody(step: Step, stepIndex: number): string {
     }
 
     case "Read":
-      return emitReadCall(step, stepIndex);
+      return emitReadCall(step, stepIndex, builtinOverrides);
 
     case "Restore": {
       const target = step.target === undefined ? "null" : String(step.target);
@@ -143,14 +156,36 @@ function emitStepBody(step: Step, stepIndex: number): string {
     }
 
     case "While":
-      return `pc = (${emitExpression(step.condition)}) ? ${stepIndex + 1} : (${emitJumpTarget(step.afterWend)}); break;`;
+      return `pc = (${emitExpression(step.condition, undefined, builtinOverrides)}) ? ${stepIndex + 1} : (${emitJumpTarget(step.afterWend)}); break;`;
 
     case "Wend":
       return `pc = ${emitJumpTarget(step.whileTarget)}; break;`;
 
     case "Randomize":
       // rt.seedRandom is synchronous (see runtime/interface.ts) — no await needed.
-      return `rt.seedRandom(${emitExpression(step.seed)}); pc = ${stepIndex + 1}; break;`;
+      return `rt.seedRandom(${emitExpression(step.seed, undefined, builtinOverrides)}); pc = ${stepIndex + 1}; break;`;
+
+    case "Open": {
+      // GW-BASIC dialect extension (see src/dialect.ts) — real file I/O
+      // always goes through the host (rt), same reasoning as INPUT/RND:
+      // emitted code itself has no filesystem access of its own.
+      const path = emitExpression(step.path, undefined, builtinOverrides);
+      const fileNumber = emitExpression(step.fileNumber, undefined, builtinOverrides);
+      return `await rt.openFile(${fileNumber}, ${path}, ${JSON.stringify(step.mode)}); pc = ${stepIndex + 1}; break;`;
+    }
+
+    case "Close": {
+      if (step.fileNumbers.length === 0) {
+        return `await rt.closeAllFiles(); pc = ${stepIndex + 1}; break;`;
+      }
+      const closes = step.fileNumbers
+        .map(
+          (fileNumber) =>
+            `await rt.closeFile(${emitExpression(fileNumber, undefined, builtinOverrides)});`,
+        )
+        .join(" ");
+      return `${closes} pc = ${stepIndex + 1}; break;`;
+    }
 
     case "NoOp":
       return `pc = ${stepIndex + 1}; break;`;

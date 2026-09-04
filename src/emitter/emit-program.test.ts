@@ -10,12 +10,32 @@ import { compile } from "../index.js";
 import { importModuleFromSource } from "../util/load-js-module.js";
 import { TestRuntime } from "../../tests/helpers/test-runtime.js";
 import type { BasicRuntime } from "../runtime/interface.js";
+import type { Dialect } from "../dialect.js";
 
 async function runBasic(source: string, scriptedInput: string[] = []): Promise<TestRuntime> {
   const { js } = compile(source);
   const mod = await importModuleFromSource(js);
   const run = mod.run as (rt: BasicRuntime) => Promise<void>;
   const rt = new TestRuntime(scriptedInput);
+  await run(rt);
+  return rt;
+}
+
+/**
+ * Like runBasic, but compiles against a given `dialect` and lets the
+ * caller pre-seed TestRuntime's virtual "disk" (for OPEN...FOR INPUT) and
+ * inspect it afterward (for OPEN...FOR OUTPUT/APPEND) — see GW-BASIC
+ * dialect extension tests below.
+ */
+async function runBasicWithFiles(
+  source: string,
+  dialect: Dialect,
+  files: Map<string, string> = new Map(),
+): Promise<TestRuntime> {
+  const { js } = compile(source, dialect);
+  const mod = await importModuleFromSource(js);
+  const run = mod.run as (rt: BasicRuntime) => Promise<void>;
+  const rt = new TestRuntime([], files);
   await run(rt);
   return rt;
 }
@@ -970,5 +990,100 @@ describe("emit — undefined line targets (build order step 16)", () => {
   it("accepts every jump target that does resolve to a real line", async () => {
     const rt = await runBasic('10 GOTO 20\n20 PRINT "OK"\n30 END');
     expect(rt.output).toBe("OK\n");
+  });
+});
+
+describe("emit — GW-BASIC dialect extension: OPEN/CLOSE/PRINT #/INPUT #/EOF()", () => {
+  it("writes to a file via PRINT # and closes it", async () => {
+    const rt = await runBasicWithFiles(
+      '10 OPEN "A.TXT" FOR OUTPUT AS #1\n20 PRINT #1, "HELLO"\n30 PRINT #1, "WORLD"\n40 CLOSE #1',
+      "gwbasic",
+    );
+    expect(rt.files.get("A.TXT")).toBe("HELLO\nWORLD\n");
+    // Console output is untouched — a file-directed PRINT never reaches rt.print.
+    expect(rt.output).toBe("");
+  });
+
+  it("PRINT # honors the usual comma/semicolon segment formatting, just routed to the file", async () => {
+    const rt = await runBasicWithFiles(
+      '10 OPEN "A.TXT" FOR OUTPUT AS #1\n20 PRINT #1, "X"; 1; "Y"',
+      "gwbasic",
+    );
+    expect(rt.files.get("A.TXT")).toBe("X 1 Y\n");
+  });
+
+  it("OPEN...FOR OUTPUT truncates existing content immediately", async () => {
+    const rt = await runBasicWithFiles(
+      '10 OPEN "A.TXT" FOR OUTPUT AS #1\n20 PRINT #1, "NEW"',
+      "gwbasic",
+      new Map([["A.TXT", "OLD\n"]]),
+    );
+    expect(rt.files.get("A.TXT")).toBe("NEW\n");
+  });
+
+  it("OPEN...FOR APPEND preserves existing content and adds after it", async () => {
+    const rt = await runBasicWithFiles(
+      '10 OPEN "A.TXT" FOR APPEND AS #1\n20 PRINT #1, "MORE"',
+      "gwbasic",
+      new Map([["A.TXT", "FIRST\n"]]),
+    );
+    expect(rt.files.get("A.TXT")).toBe("FIRST\nMORE\n");
+  });
+
+  it("reads a file back with INPUT #, one line per target", async () => {
+    const rt = await runBasicWithFiles(
+      '10 OPEN "A.TXT" FOR INPUT AS #1\n20 INPUT #1, N$\n30 INPUT #1, M$\n40 PRINT N$; M$\n50 CLOSE #1',
+      "gwbasic",
+      new Map([["A.TXT", "ADA\nGRACE\n"]]),
+    );
+    expect(rt.output).toBe("ADAGRACE\n");
+  });
+
+  it("EOF()/WHILE NOT EOF() correctly terminates a read loop at the last line, no more no less", async () => {
+    const rt = await runBasicWithFiles(
+      '10 OPEN "A.TXT" FOR INPUT AS #1\n' +
+        "20 WHILE NOT EOF(1)\n" +
+        "30   INPUT #1, N$\n" +
+        '40   PRINT "GOT "; N$\n' +
+        "50 WEND\n" +
+        "60 CLOSE #1",
+      "gwbasic",
+      new Map([["A.TXT", "ONE\nTWO\nTHREE\n"]]),
+    );
+    expect(rt.output).toBe("GOT ONE\nGOT TWO\nGOT THREE\n");
+    // The real bug this regression-guards (see runtime-calls.ts's doc
+    // comment): an unwrapped rt.isFileEof() returning a bare JS boolean
+    // would make `NOT EOF(1)` stay truthy even once EOF was reached
+    // (`~true` is `-2`, not `-1`/falsy), causing one extra INPUT # attempt
+    // that throws "attempted to read past the end of file". Any error here
+    // (rt.errors non-empty) means that regression is back.
+    expect(rt.errors).toHaveLength(0);
+  });
+
+  it("a program that reads past EOF (no guard) surfaces a FILE_ERROR", async () => {
+    const rt = await runBasicWithFiles(
+      '10 OPEN "A.TXT" FOR INPUT AS #1\n20 INPUT #1, A$\n30 INPUT #1, B$',
+      "gwbasic",
+      new Map([["A.TXT", "ONLY\n"]]),
+    );
+    expect(rt.errors).toHaveLength(1);
+    expect(rt.errors[0]).toMatchObject({ code: "FILE_ERROR" });
+    expect(rt.errors[0]?.message).toMatch(/attempted to read past the end of file/);
+  });
+
+  it("a bare CLOSE (no #n list) closes every open file", async () => {
+    const rt = await runBasicWithFiles(
+      '10 OPEN "A.TXT" FOR OUTPUT AS #1\n' +
+        '20 OPEN "B.TXT" FOR OUTPUT AS #2\n' +
+        "30 CLOSE\n" +
+        // Both file numbers are free again after a bare CLOSE — re-opening
+        // either must succeed, not raise "already open".
+        '40 OPEN "C.TXT" FOR OUTPUT AS #1\n' +
+        '50 OPEN "D.TXT" FOR OUTPUT AS #2\n' +
+        '60 PRINT #1, "OK"',
+      "gwbasic",
+    );
+    expect(rt.errors).toHaveLength(0);
+    expect(rt.files.get("C.TXT")).toBe("OK\n");
   });
 });

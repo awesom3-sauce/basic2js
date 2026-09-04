@@ -20,6 +20,14 @@
 import { LexError } from "./lex-error.js";
 import { lookupKeyword } from "./keywords.js";
 import type { Token } from "./token.js";
+import type { TypeSuffix } from "../ast/types.js";
+import {
+  DEFAULT_DIALECT,
+  getDialectSpec,
+  isSuffixAllowed,
+  normalizeIdentifierName,
+  type Dialect,
+} from "../dialect.js";
 
 function isDigit(ch: string): boolean {
   return ch >= "0" && ch <= "9";
@@ -37,14 +45,23 @@ function isSuffix(ch: string): boolean {
   return ch === "%" || ch === "!" || ch === "#" || ch === "$";
 }
 
-const SINGLE_CHAR_OPERATORS = "+-*/\\^=<>,;()";
+// "#" pulls double duty: inside the identifier-scanning branch below it's
+// consumed as a type suffix (e.g. "A#"), checked *before* this table is
+// ever consulted for that position — so a standalone "#" only ever reaches
+// here (and becomes an Operator token) when it's NOT immediately preceded
+// by an identifier, e.g. GW-BASIC dialect file I/O's `PRINT #1`/`CLOSE #1`
+// (see src/dialect.ts). The lexer stays dialect-agnostic either way: it
+// always tokenizes "#", the parser is what decides whether that's legal
+// for the active dialect.
+const SINGLE_CHAR_OPERATORS = "+-*/\\^=<>,;()#";
 
 /**
  * Tokenizes a full BASIC source listing. Every non-blank physical line must
  * begin (after leading whitespace) with a line number; blank lines are
  * silently skipped. Throws `LexError` on malformed input.
  */
-export function tokenize(source: string): Token[] {
+export function tokenize(source: string, dialect: Dialect = DEFAULT_DIALECT): Token[] {
+  const spec = getDialectSpec(dialect);
   const tokens: Token[] = [];
   const physicalLines = source.split(/\r\n|\r|\n/);
 
@@ -123,8 +140,15 @@ export function tokenize(source: string): Token[] {
         }
 
         const suffix = hasSuffix ? rawLine.charAt(pos) : "";
+        if (hasSuffix && !isSuffixAllowed(suffix as TypeSuffix, spec)) {
+          throw new LexError(
+            `"${suffix}" is not a valid type suffix in the ${spec.displayName} dialect`,
+            sourceLine,
+            startCol,
+          );
+        }
         if (hasSuffix) pos++;
-        const identifierText = word.toLowerCase() + suffix;
+        const identifierText = normalizeIdentifierName(word, spec.identifierRule) + suffix;
         tokens.push({
           type: "Identifier",
           text: identifierText,

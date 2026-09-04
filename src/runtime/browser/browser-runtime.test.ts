@@ -36,4 +36,49 @@ describe("BrowserRuntime", () => {
     other.seedRandom(42);
     expect(other.random()).toBe(first);
   });
+
+  // GW-BASIC dialect extension (see src/dialect.ts) — BrowserRuntime's file
+  // I/O methods delegate to VirtualFileSystem (see virtual-fs.test.ts for
+  // its own thorough coverage); these tests only need to confirm the
+  // delegation itself, plus the one thing genuinely specific to
+  // BrowserRuntime: that the caller-supplied `files` Map is the real
+  // backing store (persists across separate BrowserRuntime instances) —
+  // this is exactly what useBrowserRuntime.ts relies on to keep a virtual
+  // "disk" alive across multiple runs in one session.
+  it("openFile/writeFile/closeFile round-trip through the caller-supplied files Map", async () => {
+    const files = new Map<string, string>();
+    const rt = new BrowserRuntime({ onPrint: vi.fn(), onInput: vi.fn(), onError: vi.fn() }, files);
+    await rt.openFile(1, "A.TXT", "output");
+    await rt.writeFile(1, "HELLO\n");
+    await rt.closeFile(1);
+    expect(files.get("A.TXT")).toBe("HELLO\n");
+  });
+
+  it("a second BrowserRuntime over the same files Map sees what a prior instance wrote", async () => {
+    const files = new Map<string, string>();
+    const writer = new BrowserRuntime(
+      { onPrint: vi.fn(), onInput: vi.fn(), onError: vi.fn() },
+      files,
+    );
+    await writer.openFile(1, "A.TXT", "output");
+    await writer.writeFile(1, "PERSISTED");
+    await writer.closeFile(1);
+
+    const reader = new BrowserRuntime(
+      { onPrint: vi.fn(), onInput: vi.fn(), onError: vi.fn() },
+      files,
+    );
+    await reader.openFile(2, "A.TXT", "input");
+    expect(await reader.readFileLine(2)).toBe("PERSISTED");
+    expect(reader.isFileEof(2)).toBe(true);
+  });
+
+  it("defaults to a private, throwaway files Map when none is supplied", async () => {
+    const rt = new BrowserRuntime({ onPrint: vi.fn(), onInput: vi.fn(), onError: vi.fn() });
+    await rt.openFile(1, "A.TXT", "output");
+    await rt.writeFile(1, "X");
+    await rt.closeFile(1);
+    await rt.openFile(2, "A.TXT", "input");
+    expect(await rt.readFileLine(2)).toBe("X");
+  });
 });

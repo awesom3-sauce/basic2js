@@ -20,8 +20,10 @@
 // column tracking turns out to matter for a golden program.
 
 import { inferExpressionType } from "../ast/infer-type.js";
+import type { Expression } from "../ast/expressions.js";
 import type { PrintSegment } from "../ast/statements.js";
-import { emitExpression } from "./emit-expressions.js";
+import { emitExpression, NO_BUILTIN_OVERRIDES } from "./emit-expressions.js";
+import type { EmitCall } from "./runtime-calls.js";
 import { assertNever } from "../util/assert-never.js";
 
 /**
@@ -29,8 +31,18 @@ import { assertNever } from "../util/assert-never.js";
  * PRINT statement's output, given its segments. Callers embed this inside
  * a `case` body that already has its own block scope (see
  * emit-statements.ts) — it declares a local `__s`.
+ *
+ * `fileNumber`, when given, is `PRINT #n`'s target (GW-BASIC dialect
+ * extension — see src/dialect.ts): the exact same segment-building logic
+ * runs either way, only the final sink differs (`rt.writeFile` instead of
+ * `rt.print`) — a file has no "terminal", but the same trailing-`;`/`,`
+ * newline-suppression convention still applies, matching real GW-BASIC.
  */
-export function emitPrintCall(segments: readonly PrintSegment[]): string {
+export function emitPrintCall(
+  segments: readonly PrintSegment[],
+  fileNumber?: Expression,
+  builtinOverrides: ReadonlyMap<string, EmitCall> = NO_BUILTIN_OVERRIDES,
+): string {
   const lines: string[] = ['let __s = "";'];
   let suppressNewline = false;
 
@@ -46,7 +58,7 @@ export function emitPrintCall(segments: readonly PrintSegment[]): string {
         break;
 
       case "value": {
-        const valueJs = emitExpression(segment.expr);
+        const valueJs = emitExpression(segment.expr, undefined, builtinOverrides);
         const formatted =
           inferExpressionType(segment.expr) === "number"
             ? `__fmtNum(${valueJs})`
@@ -56,11 +68,13 @@ export function emitPrintCall(segments: readonly PrintSegment[]): string {
       }
 
       case "tab":
-        lines.push(`__s += __tabTo(__s.length, ${emitExpression(segment.expr)});`);
+        lines.push(
+          `__s += __tabTo(__s.length, ${emitExpression(segment.expr, undefined, builtinOverrides)});`,
+        );
         break;
 
       case "spc":
-        lines.push(`__s += __spc(${emitExpression(segment.expr)});`);
+        lines.push(`__s += __spc(${emitExpression(segment.expr, undefined, builtinOverrides)});`);
         break;
 
       default:
@@ -69,6 +83,10 @@ export function emitPrintCall(segments: readonly PrintSegment[]): string {
   }
 
   if (!suppressNewline) lines.push('__s += "\\n";');
-  lines.push("await rt.print(__s);");
+  lines.push(
+    fileNumber === undefined
+      ? "await rt.print(__s);"
+      : `await rt.writeFile(${emitExpression(fileNumber, undefined, builtinOverrides)}, __s);`,
+  );
   return lines.join(" ");
 }

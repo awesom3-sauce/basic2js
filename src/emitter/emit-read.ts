@@ -15,10 +15,15 @@
 
 import type { ReadStep } from "../ir/program.js";
 import { coerceForSuffix } from "./coerce.js";
-import { emitExpression } from "./emit-expressions.js";
+import { emitExpression, NO_BUILTIN_OVERRIDES } from "./emit-expressions.js";
+import type { EmitCall } from "./runtime-calls.js";
 import { varKey } from "./mangle.js";
 
-export function emitReadCall(step: ReadStep, stepIndex: number): string {
+export function emitReadCall(
+  step: ReadStep,
+  stepIndex: number,
+  builtinOverrides: ReadonlyMap<string, EmitCall> = NO_BUILTIN_OVERRIDES,
+): string {
   const assignments = step.targets
     .map((target) => {
       const key = JSON.stringify(varKey(target.name, target.suffix));
@@ -27,7 +32,7 @@ export function emitReadCall(step: ReadStep, stepIndex: number): string {
       // separate increment statement needed.
       const value = coerceForSuffix(target.suffix, "__readNext(dataPtr++)");
       if (target.kind === "ArrayElement") {
-        const indices = `[${target.indices.map((e) => emitExpression(e)).join(", ")}]`;
+        const indices = `[${target.indices.map((e) => emitExpression(e, undefined, builtinOverrides)).join(", ")}]`;
         const isString = target.suffix === "$";
         return `__arrSet(ARR, ${key}, ${indices}, ${value}, ${isString});`;
       }
